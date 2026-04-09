@@ -11,23 +11,95 @@ const PORT = Number(process.env.PORT || 4000);
 const DATA_FILE = join(__dirname, 'data', 'contracts.json');
 const MAX_BODY_SIZE = 15 * 1024 * 1024;
 const SIGN_TITLES = ['CỬA HÀNG', 'NHÂN VIÊN', 'GIÁM SÁT', 'CÔNG TY TNHH THƯƠNG MẠI ĐẠI VIỆT FOOD'];
+const EMPTY_CONTRACTS = '[]\n';
 
 const sendJson = (res, statusCode, payload) => {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   });
   res.end(JSON.stringify(payload));
 };
 
+const toSafeSignatures = (value) => {
+  const source = Array.isArray(value) ? value : [];
+  return SIGN_TITLES.map((_, index) => {
+    const signature = source[index];
+    return typeof signature === 'string' ? signature : '';
+  });
+};
+
+const updateContractSignatureByRole = async ({ contractId, signatureIndex, signatureDataUrl, signer }) => {
+  if (!Number.isInteger(signatureIndex) || signatureIndex < 0 || signatureIndex > 3) {
+    throw new Error('Vị trí chữ ký không hợp lệ.');
+  }
+
+  if (!signatureDataUrl) {
+    throw new Error('Thiếu dữ liệu chữ ký.');
+  }
+
+  if (!contractId) {
+    throw new Error('Thiếu mã hợp đồng.');
+  }
+
+  const contracts = await readContracts();
+  const contractIndex = contracts.findIndex((item) => item?.id === contractId);
+
+  if (contractIndex < 0) {
+    const notFoundError = new Error('Không tìm thấy hợp đồng.');
+    notFoundError.statusCode = 404;
+    throw notFoundError;
+  }
+
+  const targetContract = contracts[contractIndex];
+  const nextSignatures = toSafeSignatures(targetContract?.signatures);
+  nextSignatures[signatureIndex] = signatureDataUrl;
+
+  const now = new Date().toISOString();
+  const nextEntries = SIGN_TITLES.map((title, index) => {
+    const previousEntry = Array.isArray(targetContract?.lichSuKyDuyet) ? targetContract.lichSuKyDuyet[index] : null;
+    const entrySignature = nextSignatures[index] || '';
+
+    return {
+      id: previousEntry?.id || `ls-${targetContract.hopDong?.id || targetContract.id}-${index + 1}`,
+      hopDongId: previousEntry?.hopDongId || targetContract.hopDong?.id || `hd-${targetContract.id}`,
+      vaiTro: title,
+      nguoiKy: index === signatureIndex ? signer || title : previousEntry?.nguoiKy || title,
+      signatureDataUrl: entrySignature,
+      trangThai: entrySignature ? 'da_ky' : 'trong',
+      kyLucAt: index === signatureIndex ? now : previousEntry?.kyLucAt || now,
+    };
+  });
+
+  const signedCount = nextSignatures.filter(Boolean).length;
+  const nextTrangThai = signedCount === 0 ? 'cho_ky' : signedCount >= SIGN_TITLES.length ? 'da_ky' : 'da_luu';
+
+  contracts[contractIndex] = {
+    ...targetContract,
+    savedAtClient: now,
+    signatures: nextSignatures,
+    lichSuKyDuyet: nextEntries,
+    hopDong: {
+      ...targetContract.hopDong,
+      trangThai: nextTrangThai,
+    },
+  };
+
+  await writeContracts(contracts);
+  return targetContract.id;
+};
+
 const ensureDataFile = async () => {
   await mkdir(dirname(DATA_FILE), { recursive: true });
   try {
-    await readFile(DATA_FILE, 'utf8');
+    const content = await readFile(DATA_FILE, 'utf8');
+    if (!content.trim()) {
+      await writeFile(DATA_FILE, EMPTY_CONTRACTS, 'utf8');
+    }
   } catch {
-    await writeFile(DATA_FILE, '[]\n', 'utf8');
+    await writeFile(DATA_FILE, EMPTY_CONTRACTS, 'utf8');
   }
 };
 
@@ -44,7 +116,10 @@ const buildSignedDate = (formData) => {
 const createTaiKhoan = (savedBy, fallbackId) => {
   const username = typeof savedBy?.username === 'string' ? savedBy.username : 'unknown';
   const displayName = typeof savedBy?.displayName === 'string' ? savedBy.displayName : 'Không rõ';
-  const role = savedBy?.role === 'admin' || savedBy?.role === 'contract' ? savedBy.role : 'contract';
+  const role =
+    savedBy?.role === 'admin' || savedBy?.role === 'contract' || savedBy?.role === 'supervisor' || savedBy?.role === 'company'
+      ? savedBy.role
+      : 'contract';
 
   return {
     id: `tk-${fallbackId}`,
@@ -118,7 +193,10 @@ const sanitizeSavedBy = (savedBy, fallbackId) => {
     };
   }
 
-  const role = savedBy.role === 'admin' || savedBy.role === 'contract' ? savedBy.role : 'contract';
+  const role =
+    savedBy.role === 'admin' || savedBy.role === 'contract' || savedBy.role === 'supervisor' || savedBy.role === 'company'
+      ? savedBy.role
+      : 'contract';
 
   return {
     username: typeof savedBy.username === 'string' ? savedBy.username : 'unknown',
@@ -241,14 +319,20 @@ const normalizeStoredRecord = (record) => {
 
 const readContracts = async () => {
   await ensureDataFile();
-  const raw = await readFile(DATA_FILE, 'utf8');
-  const parsed = JSON.parse(raw || '[]');
-  return Array.isArray(parsed) ? parsed.map((record) => normalizeStoredRecord(record)) : [];
+
+  try {
+    const raw = await readFile(DATA_FILE, 'utf8');
+    const parsed = raw.trim() ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map((record) => normalizeStoredRecord(record)) : [];
+  } catch {
+    await writeFile(DATA_FILE, EMPTY_CONTRACTS, 'utf8');
+    return [];
+  }
 };
 
 const writeContracts = async (contracts) => {
   const compacted = contracts.map((record) => toCompactRecord(record));
-  await writeFile(DATA_FILE, JSON.stringify(compacted, null, 2), 'utf8');
+  await writeFile(DATA_FILE, `${JSON.stringify(compacted, null, 2)}\n`, 'utf8');
 };
 
 const readBody = (req) => {
@@ -281,17 +365,20 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  const requestUrl = new URL(req.url, 'http://localhost');
+  const path = requestUrl.pathname;
+
   if (req.method === 'OPTIONS') {
     sendJson(res, 204, {});
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/api/health') {
+  if (req.method === 'GET' && path === '/api/health') {
     sendJson(res, 200, { ok: true });
     return;
   }
 
-  if (req.method === 'GET' && req.url === '/api/contracts') {
+  if (req.method === 'GET' && path === '/api/contracts') {
     try {
       const contracts = await readContracts();
       sendJson(res, 200, { total: contracts.length, items: contracts });
@@ -301,7 +388,7 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/api/contracts') {
+  if (req.method === 'POST' && path === '/api/contracts') {
     try {
       const payload = await readBody(req);
       const contracts = await readContracts();
@@ -327,7 +414,75 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'PATCH' && /^\/api\/contracts\/[^/]+\/signatures\/?$/.test(path)) {
+    try {
+      const payload = await readBody(req);
+      const signatureIndex = Number(payload?.signatureIndex);
+      const signatureDataUrl = typeof payload?.signatureDataUrl === 'string' ? payload.signatureDataUrl : '';
+      const signer = typeof payload?.signer === 'string' ? payload.signer : '';
+
+      const contractId = decodeURIComponent(path.split('/')[3] || '');
+      const updatedId = await updateContractSignatureByRole({
+        contractId,
+        signatureIndex,
+        signatureDataUrl,
+        signer,
+      });
+
+      sendJson(res, 200, { message: 'Đã lưu chữ ký.', id: updatedId });
+    } catch (error) {
+      const statusCode = error instanceof Error && Number.isInteger(error.statusCode) ? error.statusCode : 400;
+      sendJson(res, statusCode, { message: error instanceof Error ? error.message : 'Không thể cập nhật chữ ký.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && path === '/api/contracts/signatures') {
+    try {
+      const payload = await readBody(req);
+      const signatureIndex = Number(payload?.signatureIndex);
+      const signatureDataUrl = typeof payload?.signatureDataUrl === 'string' ? payload.signatureDataUrl : '';
+      const signer = typeof payload?.signer === 'string' ? payload.signer : '';
+      const contractId = typeof payload?.contractId === 'string' ? payload.contractId : '';
+
+      const updatedId = await updateContractSignatureByRole({
+        contractId,
+        signatureIndex,
+        signatureDataUrl,
+        signer,
+      });
+
+      sendJson(res, 200, { message: 'Đã lưu chữ ký.', id: updatedId });
+    } catch (error) {
+      const statusCode = error instanceof Error && Number.isInteger(error.statusCode) ? error.statusCode : 400;
+      sendJson(res, statusCode, { message: error instanceof Error ? error.message : 'Không thể cập nhật chữ ký.' });
+    }
+    return;
+  }
+
   sendJson(res, 404, { message: 'Không tìm thấy endpoint.' });
+});
+
+let keepAliveTimer = null;
+
+server.on('error', (error) => {
+  if (error?.code === 'EADDRINUSE') {
+    console.log(`Cổng ${PORT} đang được backend khác sử dụng, tiếp tục dùng tiến trình đang chạy.`);
+    if (!keepAliveTimer) {
+      keepAliveTimer = setInterval(() => {}, 1000);
+    }
+    return;
+  }
+
+  throw error;
+});
+
+process.on('SIGINT', () => {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+  process.exit(0);
 });
 
 server.listen(PORT, () => {

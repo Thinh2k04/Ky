@@ -4,7 +4,7 @@ const TaiKhoanSchema = new mongoose.Schema(
   {
     username: { type: String, required: true, unique: true },
     displayName: { type: String, required: true },
-    role: { type: String, enum: ['admin', 'contract'], required: true },
+    role: { type: String, enum: ['admin', 'contract', 'supervisor', 'company'], required: true },
   },
   { _id: true }
 );
@@ -76,6 +76,9 @@ const HopDongSchema = new mongoose.Schema(
     hopDongChiTiet: { type: HopDongChiTietSchema, required: true },
     lichSuKyDuyet: { type: [LichSuKyDuyetSchema], default: [] },
     tepDinhKem: { type: [TepDinhKemSchema], default: [] },
+    savedBy: { type: mongoose.Schema.Types.Mixed, default: null },
+    formData: { type: mongoose.Schema.Types.Mixed, default: null },
+    signatures: { type: [String], default: [] },
     signedDate: { type: String, default: '' },
     trangThai: { type: String, enum: ['cho_ky', 'da_ky', 'da_luu', 'huy'], default: 'cho_ky' },
     savedAtClient: { type: String, default: null },

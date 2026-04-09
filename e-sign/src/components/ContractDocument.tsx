@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type React from 'react';
+import { SIGN_TITLES } from '../features/contracts/constants';
 import type { ContractFormData } from '../types/contract';
 
 interface SignatureHandlers {
@@ -26,13 +27,6 @@ interface ContractDocumentProps {
   onLogout: () => void;
 }
 
-const SIGN_TITLES = [
-  'CỬA HÀNG',
-  'NHÂN VIÊN',
-  'GIÁM SÁT',
-  'CÔNG TY TNHH THƯƠNG MẠI ĐẠI VIỆT FOOD',
-] as const;
-
 export default function ContractDocument({
   formData,
   onInputChange,
@@ -45,10 +39,23 @@ export default function ContractDocument({
   accountInfo,
   onLogout,
 }: ContractDocumentProps) {
-  const roleLabel = accountInfo.role === 'contract' ? 'Nhân viên hợp đồng' : accountInfo.role;
+  const roleLabel =
+    accountInfo.role === 'contract'
+      ? 'Nhân viên hợp đồng'
+      : accountInfo.role === 'supervisor'
+        ? 'Nhân viên giám sát'
+        : accountInfo.role === 'company'
+          ? 'Đại diện công ty'
+          : accountInfo.role;
+  const canEditForm = accountInfo.role === 'contract';
+  const visibleSignIndexes =
+    accountInfo.role === 'contract' ? [0, 1] : accountInfo.role === 'supervisor' ? [2] : accountInfo.role === 'company' ? [3] : [];
+  const canSignIndex = (index: number) => visibleSignIndexes.includes(index);
+  const formInputProps = canEditForm ? { onChange: onInputChange } : { readOnly: true, disabled: true };
   const previewCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
   const modalCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isModalDrawing = useRef(false);
+  const [isModalDirty, setIsModalDirty] = useState(false);
   const [activeSignIndex, setActiveSignIndex] = useState<number | null>(null);
 
   const getModalPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
@@ -71,6 +78,7 @@ export default function ContractDocument({
     if (!context) return;
 
     isModalDrawing.current = true;
+    setIsModalDirty(true);
     canvas.setPointerCapture(event.pointerId);
     context.beginPath();
     context.moveTo(point.x, point.y);
@@ -100,19 +108,25 @@ export default function ContractDocument({
     if (!canvas || !context) return;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
+    setIsModalDirty(false);
   };
 
   const openSignatureModal = (index: number) => {
+    if (!canSignIndex(index)) {
+      return;
+    }
+
     setActiveSignIndex(index);
   };
 
   const closeSignatureModal = () => {
     setActiveSignIndex(null);
     stopModalDrawing();
+    setIsModalDirty(false);
   };
 
   const confirmSignature = () => {
-    if (activeSignIndex === null) return;
+    if (activeSignIndex === null || !isModalDirty) return;
 
     const modalCanvas = modalCanvasRef.current;
     const previewCanvas = previewCanvasRefs.current[activeSignIndex];
@@ -142,6 +156,7 @@ export default function ContractDocument({
     context.lineWidth = 4;
     context.lineCap = 'round';
     context.strokeStyle = '#111827';
+    setIsModalDirty(false);
 
     if (previewCanvas) {
       context.drawImage(previewCanvas, 0, 0, modalCanvas.width, modalCanvas.height);
@@ -199,11 +214,11 @@ export default function ContractDocument({
                 <p className="paragraph bold">Độc lập - Tự do - Hạnh phúc</p>
                 <p className="paragraph date-row">
                   Hà Nội, ngày{' '}
-                  <input type="text" name="ngay" value={formData.ngay} onChange={onInputChange} className="input-underline w-10 center" />{' '}
+                  <input type="text" name="ngay" value={formData.ngay} className="input-underline w-10 center" {...formInputProps} />{' '}
                   tháng{' '}
-                  <input type="text" name="thang" value={formData.thang} onChange={onInputChange} className="input-underline w-10 center" />{' '}
+                  <input type="text" name="thang" value={formData.thang} className="input-underline w-10 center" {...formInputProps} />{' '}
                   năm{' '}
-                  <input type="text" name="nam" value={formData.nam} onChange={onInputChange} className="input-underline w-16 center" />
+                  <input type="text" name="nam" value={formData.nam} className="input-underline w-16 center" {...formInputProps} />
                 </p>
               </div>
             </div>
@@ -225,31 +240,31 @@ export default function ContractDocument({
 
               <div>
                 1. Chủ cửa hàng:{' '}
-                <input type="text" name="chuCuaHang" value={formData.chuCuaHang} onChange={onInputChange} className="input-underline w-80" />
+                <input type="text" name="chuCuaHang" value={formData.chuCuaHang} className="input-underline w-80" {...formInputProps} />
                 {' '}CCCD:{' '}
-                <input type="text" name="cccd" value={formData.cccd} onChange={onInputChange} className="input-underline w-52" />
+                <input type="text" name="cccd" value={formData.cccd} className="input-underline w-52" {...formInputProps} />
                 {' '}SĐT:{' '}
-                <input type="text" name="sdt" value={formData.sdt} onChange={onInputChange} className="input-underline w-52" />
+                <input type="text" name="sdt" value={formData.sdt} className="input-underline w-52" {...formInputProps} />
                 <br />
                 Mã khách hàng:{' '}
-                <input type="text" name="maKhachHang" value={formData.maKhachHang} onChange={onInputChange} className="input-underline w-80" />
+                <input type="text" name="maKhachHang" value={formData.maKhachHang} className="input-underline w-80" {...formInputProps} />
                 {' '}Địa chỉ:{' '}
-                <input type="text" name="diaChi" value={formData.diaChi} onChange={onInputChange} className="input-underline w-480" />
+                <input type="text" name="diaChi" value={formData.diaChi} className="input-underline w-480" {...formInputProps} />
                 <br />
                 Mức kệ đăng ký:{' '}
-                <input type="text" name="mucKe" value={formData.mucKe} onChange={onInputChange} className="input-underline w-20 center" /> kệ
+                <input type="text" name="mucKe" value={formData.mucKe} className="input-underline w-20 center" {...formInputProps} /> kệ
               </div>
 
               <div>
                 2. Hàng hóa trưng bày tại các địa điểm, vị trí:{' '}
-                <input type="text" name="viTriTrungBay" value={formData.viTriTrungBay} onChange={onInputChange} className="input-underline w-75p" />
+                <input type="text" name="viTriTrungBay" value={formData.viTriTrungBay} className="input-underline w-75p" {...formInputProps} />
               </div>
 
               <div>
                 3. Số lượng mẫu hàng là:{' '}
-                <input type="text" name="soLuongMauHang" value={formData.soLuongMauHang} onChange={onInputChange} className="input-underline w-52" />{' '}
+                <input type="text" name="soLuongMauHang" value={formData.soLuongMauHang} className="input-underline w-52" {...formInputProps} />{' '}
                 đảm bảo các tiêu chuẩn:{' '}
-                <input type="text" name="tieuChuan" value={formData.tieuChuan} onChange={onInputChange} className="input-underline w-55p" />
+                <input type="text" name="tieuChuan" value={formData.tieuChuan} className="input-underline w-55p" {...formInputProps} />
               </div>
 
               <div className="justify">
@@ -276,16 +291,16 @@ export default function ContractDocument({
                       <tr>
                         <td>Kệ sắt Bà Tuyết</td>
                         <td>
-                          <input type="text" name="soKe" value={formData.soKe} onChange={onInputChange} className="input-underline w-16 center" /> kệ Bà Tuyết/1 cửa hàng
+                          <input type="text" name="soKe" value={formData.soKe} className="input-underline w-16 center" {...formInputProps} /> kệ Bà Tuyết/1 cửa hàng
                         </td>
                         <td>
-                          <input type="text" name="thoiGianThoaThuan" value={formData.thoiGianThoaThuan} onChange={onInputChange} className="input-underline w-16 center" /> tháng
+                          <input type="text" name="thoiGianThoaThuan" value={formData.thoiGianThoaThuan} className="input-underline w-16 center" {...formInputProps} /> tháng
                         </td>
                         <td>
-                          <input type="text" name="mucDoanhSo" value={formData.mucDoanhSo} onChange={onInputChange} className="input-underline w-100 center" />
+                          <input type="text" name="mucDoanhSo" value={formData.mucDoanhSo} className="input-underline w-100 center" {...formInputProps} />
                         </td>
                         <td>
-                          <input type="text" name="mucThuong" value={formData.mucThuong} onChange={onInputChange} className="input-underline w-100 center" />
+                          <input type="text" name="mucThuong" value={formData.mucThuong} className="input-underline w-100 center" {...formInputProps} />
                         </td>
                       </tr>
                     </tbody>
@@ -307,25 +322,35 @@ export default function ContractDocument({
             </p>
 
             <div className="sign-grid">
-              {SIGN_TITLES.map((title, index) => (
-                <div key={title} className="sign-item">
-                  <p className="sign-title">{title}</p>
-                  <canvas
-                    ref={(element) => {
-                      previewCanvasRefs.current[index] = element;
-                      signatures.setCanvasRef(index, element);
-                    }}
-                    width={240}
-                    height={160}
-                    className="sign-pad sign-pad-preview"
-                  />
-                  <div className="sign-actions no-print">
-                    <button type="button" onClick={() => openSignatureModal(index)} className="sign-open-btn">Ký</button>
-                    <button type="button" onClick={() => signatures.clearSignature(index)} className="clear-btn">Xóa ký</button>
+              {SIGN_TITLES.map((title, index) => {
+                if (!canSignIndex(index)) {
+                  return null;
+                }
+
+                return (
+                  <div key={title} className="sign-item">
+                    <p className="sign-title">{title}</p>
+                    <canvas
+                      ref={(element) => {
+                        previewCanvasRefs.current[index] = element;
+                        signatures.setCanvasRef(index, element);
+                      }}
+                      width={240}
+                      height={160}
+                      className="sign-pad sign-pad-preview"
+                    />
+                    <div className="sign-actions no-print">
+                      <button type="button" onClick={() => openSignatureModal(index)} className="sign-open-btn">
+                        Ký
+                      </button>
+                      <button type="button" onClick={() => signatures.clearSignature(index)} className="clear-btn">
+                        Xóa ký
+                      </button>
+                    </div>
+                    <p className="hint">(Ký và ghi rõ họ tên)</p>
                   </div>
-                  <p className="hint">(Ký và ghi rõ họ tên)</p>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         </div>
@@ -367,7 +392,9 @@ export default function ContractDocument({
               <div className="signature-modal-actions">
                 <button type="button" className="ghost-btn" onClick={clearModalCanvas}>Xóa nét ký</button>
                 <button type="button" className="ghost-btn" onClick={closeSignatureModal}>Hủy</button>
-                <button type="button" className="save-btn" onClick={confirmSignature}>Xác nhận chữ ký</button>
+                <button type="button" className="save-btn" onClick={confirmSignature} disabled={!isModalDirty}>
+                  Xác nhận chữ ký
+                </button>
               </div>
             </div>
           </div>

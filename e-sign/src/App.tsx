@@ -3,10 +3,14 @@ import { useState } from 'react';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import AdminDashboard from './Admin/admin';
+import SignatureReviewDashboard from './GiamSat/giamsat';
 import ContractDocument from './components/ContractDocument';
 import LoginScreen from './login/login';
 import { useAdminSession } from './hooks/useAdminSession';
 import { useSignatureCanvas } from './hooks/useSignatureCanvas';
+import { buildContractSavePayload } from './features/contracts/payload';
+import { getMissingSignatureIndexes, getMissingSignatureMessage, getRequiredSignatureIndexesByRole } from './features/contracts/signatures';
+import { validateContractFormData } from './features/contracts/validation';
 import { createInitialContractFormData } from './types/contract';
 
 export default function ThoaThuanTrungBay() {
@@ -24,32 +28,33 @@ export default function ThoaThuanTrungBay() {
   };
 
   const saveContract = async () => {
+    const currentRole = session?.user.role;
+
+    if (currentRole === 'contract') {
+      const validationError = validateContractFormData(formData);
+      if (validationError) {
+        setSaveMessage(validationError);
+        return;
+      }
+    }
+
+    const signaturesData = signatures.getSignatureDataUrls();
+    const requiredIndexes = getRequiredSignatureIndexesByRole(currentRole || '');
+    const missingSignatures = getMissingSignatureIndexes(signaturesData, requiredIndexes);
+
+    if (missingSignatures.length > 0) {
+      setSaveMessage(getMissingSignatureMessage(currentRole || ''));
+      return;
+    }
+
     setIsSaving(true);
     setSaveMessage('');
 
-    const normalizedDay = formData.ngay.trim().padStart(2, '0');
-    const normalizedMonth = formData.thang.trim().padStart(2, '0');
-    const normalizedYear = formData.nam.trim();
-    const signedDate = [normalizedDay, normalizedMonth, normalizedYear].filter(Boolean).join('/');
-
-    const { ngay, thang, nam, ...restFormData } = formData;
-
-    const payload = {
-      savedBy: session?.user ?? null,
-      khachHang: {
-        ten: restFormData.chuCuaHang,
-        cccd: restFormData.cccd,
-        sdt: restFormData.sdt,
-        maKhachHang: restFormData.maKhachHang,
-        diaChi: restFormData.diaChi,
-      },
-      hopDongChiTiet: {
-        ...restFormData,
-        signedDate,
-      },
-      signatures: signatures.getSignatureDataUrls(),
-      savedAtClient: new Date().toISOString(),
-    };
+    const payload = buildContractSavePayload({
+      formData,
+      sessionUser: session?.user,
+      signatures: signaturesData,
+    });
 
     try {
       const response = await fetch('/api/contracts', {
@@ -222,6 +227,10 @@ export default function ThoaThuanTrungBay() {
 
   if (session.user.role === 'admin') {
     return <AdminDashboard session={session} onLogout={handleLogout} />;
+  }
+
+  if (session.user.role === 'supervisor' || session.user.role === 'company') {
+    return <SignatureReviewDashboard session={session} onLogout={handleLogout} />;
   }
 
   return (

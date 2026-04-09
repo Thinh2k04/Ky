@@ -3,7 +3,7 @@ import type { ContractFormData } from './contract';
 export interface AdminUser {
   username: string;
   displayName: string;
-  role: 'admin' | 'contract';
+  role: 'admin' | 'contract' | 'supervisor' | 'company';
 }
 
 export interface AdminSession {
@@ -15,7 +15,7 @@ export interface TaiKhoanRecord {
   id: string;
   username: string;
   displayName: string;
-  role: 'admin' | 'contract';
+  role: 'admin' | 'contract' | 'supervisor' | 'company';
 }
 
 export interface NhanVienRecord {

@@ -8,9 +8,13 @@ const DEFAULT_PEN_WIDTH = 3.5;
 export function useSignatureCanvas(totalPads: number) {
   const canvasRefs = useRef<(HTMLCanvasElement | null)[]>(Array(totalPads).fill(null));
   const activeCanvasIndex = useRef<number | null>(null);
+  const blankDataUrls = useRef<string[]>(Array(totalPads).fill(''));
 
   const setCanvasRef = (index: number, element: HTMLCanvasElement | null) => {
     canvasRefs.current[index] = element;
+    if (element) {
+      blankDataUrls.current[index] = element.toDataURL('image/png');
+    }
   };
 
   const getContext = (index: number) => {
@@ -80,12 +84,21 @@ export function useSignatureCanvas(totalPads: number) {
     if (!canvas || !context) return;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
+    blankDataUrls.current[index] = canvas.toDataURL('image/png');
   };
 
   const getSignatureDataUrls = () => {
-    return canvasRefs.current.map((canvas) => {
+    return canvasRefs.current.map((canvas, index) => {
       if (!canvas) return '';
-      return canvas.toDataURL('image/png');
+
+      const currentDataUrl = canvas.toDataURL('image/png');
+      const blankDataUrl = blankDataUrls.current[index];
+
+      if (blankDataUrl && currentDataUrl === blankDataUrl) {
+        return '';
+      }
+
+      return currentDataUrl;
     });
   };
 

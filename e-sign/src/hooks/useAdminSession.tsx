@@ -28,6 +28,24 @@ export const DEMO_ACCOUNTS: DemoAccount[] = [
       role: 'contract',
     },
   },
+  {
+    username: 'giamsat',
+    password: 'giamsat123',
+    user: {
+      username: 'giamsat',
+      displayName: 'Nhân viên giám sát',
+      role: 'supervisor',
+    },
+  },
+  {
+    username: 'congty',
+    password: 'congty123',
+    user: {
+      username: 'congty',
+      displayName: 'Đại diện công ty',
+      role: 'company',
+    },
+  },
 ];
 
 const readSession = (): AdminSession | null => {
@@ -42,7 +60,7 @@ const readSession = (): AdminSession | null => {
       typeof parsed.token === 'string' &&
       parsed.user &&
       typeof parsed.user.username === 'string' &&
-      (parsed.user.role === 'admin' || parsed.user.role === 'contract')
+      (parsed.user.role === 'admin' || parsed.user.role === 'contract' || parsed.user.role === 'supervisor' || parsed.user.role === 'company')
     ) {
       return {
         token: parsed.token,
