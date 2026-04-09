@@ -100,6 +100,83 @@ const createLichSuKyDuyet = (signatures, contractId, savedAtClient) => {
   }));
 };
 
+const asPlainObject = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+
+  return value;
+};
+
+const sanitizeSavedBy = (savedBy, fallbackId) => {
+  if (!savedBy || typeof savedBy !== 'object') {
+    return {
+      username: 'unknown',
+      displayName: 'Khong ro',
+      role: 'contract',
+      refId: `tk-${fallbackId}`,
+    };
+  }
+
+  const role = savedBy.role === 'admin' || savedBy.role === 'contract' ? savedBy.role : 'contract';
+
+  return {
+    username: typeof savedBy.username === 'string' ? savedBy.username : 'unknown',
+    displayName: typeof savedBy.displayName === 'string' ? savedBy.displayName : 'Khong ro',
+    role,
+    refId: typeof savedBy.id === 'string' ? savedBy.id : `tk-${fallbackId}`,
+  };
+};
+
+const extractSignatures = (record) => {
+  if (Array.isArray(record?.signatures)) {
+    return record.signatures.map((signature) => (typeof signature === 'string' ? signature : ''));
+  }
+
+  if (Array.isArray(record?.lichSuKyDuyet)) {
+    return record.lichSuKyDuyet.map((entry) => (typeof entry?.signatureDataUrl === 'string' ? entry.signatureDataUrl : ''));
+  }
+
+  return [];
+};
+
+const compactAttachment = (attachment) => {
+  const source = asPlainObject(attachment);
+  if (!source) {
+    return null;
+  }
+
+  return {
+    fileName: typeof source.fileName === 'string' ? source.fileName : '',
+    fileType: typeof source.fileType === 'string' ? source.fileType : '',
+    fileUrl: typeof source.fileUrl === 'string' ? source.fileUrl : '',
+    uploadedAt: typeof source.uploadedAt === 'string' ? source.uploadedAt : '',
+  };
+};
+
+const toCompactRecord = (record) => {
+  const normalizedId = typeof record?.id === 'string' ? record.id : randomUUID();
+  const createdAt = typeof record?.createdAt === 'string' ? record.createdAt : new Date().toISOString();
+  const savedAtClient = typeof record?.savedAtClient === 'string' ? record.savedAtClient : null;
+  const sourceSavedBy = record?.savedBy ?? record?.taiKhoan ?? record?.nhanVien?.taiKhoan;
+  const signatures = extractSignatures(record);
+
+  const attachments = Array.isArray(record?.tepDinhKem)
+    ? record.tepDinhKem.map((item) => compactAttachment(item)).filter(Boolean)
+    : [];
+
+  return {
+    id: normalizedId,
+    createdAt,
+    savedAtClient,
+    savedBy: sanitizeSavedBy(sourceSavedBy, normalizedId),
+    formData: asPlainObject(record?.formData),
+    hopDongChiTiet: asPlainObject(record?.hopDongChiTiet),
+    signatures,
+    tepDinhKem: attachments,
+  };
+};
+
 const normalizeStoredRecord = (record) => {
   if (!record || typeof record !== 'object') {
     return record;
@@ -170,7 +247,8 @@ const readContracts = async () => {
 };
 
 const writeContracts = async (contracts) => {
-  await writeFile(DATA_FILE, JSON.stringify(contracts, null, 2), 'utf8');
+  const compacted = contracts.map((record) => toCompactRecord(record));
+  await writeFile(DATA_FILE, JSON.stringify(compacted, null, 2), 'utf8');
 };
 
 const readBody = (req) => {
