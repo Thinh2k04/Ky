@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react';
 import type React from 'react';
 import type { ContractFormData } from '../types/contract';
 
@@ -17,6 +18,11 @@ interface ContractDocumentProps {
   isSaving: boolean;
   saveMessage: string;
   signatures: SignatureHandlers;
+  accountInfo: {
+    displayName: string;
+    role: string;
+  };
+  onLogout: () => void;
 }
 
 const SIGN_TITLES = [
@@ -34,10 +40,151 @@ export default function ContractDocument({
   isSaving,
   saveMessage,
   signatures,
+  accountInfo,
+  onLogout,
 }: ContractDocumentProps) {
+  const roleLabel = accountInfo.role === 'contract' ? 'Nhân viên hợp đồng' : accountInfo.role;
+  const previewCanvasRefs = useRef<(HTMLCanvasElement | null)[]>([]);
+  const modalCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isModalDrawing = useRef(false);
+  const [activeSignIndex, setActiveSignIndex] = useState<number | null>(null);
+
+  const getModalPoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = modalCanvasRef.current;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) * canvas.width) / rect.width,
+      y: ((event.clientY - rect.top) * canvas.height) / rect.height,
+    };
+  };
+
+  const handleModalPointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = modalCanvasRef.current;
+    const point = getModalPoint(event);
+    if (!canvas || !point) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    isModalDrawing.current = true;
+    canvas.setPointerCapture(event.pointerId);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+  };
+
+  const handleModalPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isModalDrawing.current) return;
+
+    const canvas = modalCanvasRef.current;
+    const point = getModalPoint(event);
+    if (!canvas || !point) return;
+
+    const context = canvas.getContext('2d');
+    if (!context) return;
+
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  };
+
+  const stopModalDrawing = () => {
+    isModalDrawing.current = false;
+  };
+
+  const clearModalCanvas = () => {
+    const canvas = modalCanvasRef.current;
+    const context = canvas?.getContext('2d');
+    if (!canvas || !context) return;
+
+    context.clearRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const openSignatureModal = (index: number) => {
+    setActiveSignIndex(index);
+  };
+
+  const closeSignatureModal = () => {
+    setActiveSignIndex(null);
+    stopModalDrawing();
+  };
+
+  const confirmSignature = () => {
+    if (activeSignIndex === null) return;
+
+    const modalCanvas = modalCanvasRef.current;
+    const previewCanvas = previewCanvasRefs.current[activeSignIndex];
+    const previewContext = previewCanvas?.getContext('2d');
+
+    if (!modalCanvas || !previewCanvas || !previewContext) {
+      closeSignatureModal();
+      return;
+    }
+
+    previewContext.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+    previewContext.drawImage(modalCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+    closeSignatureModal();
+  };
+
+  useEffect(() => {
+    if (activeSignIndex === null) return;
+
+    const modalCanvas = modalCanvasRef.current;
+    const previewCanvas = previewCanvasRefs.current[activeSignIndex];
+    if (!modalCanvas) return;
+
+    const context = modalCanvas.getContext('2d');
+    if (!context) return;
+
+    context.clearRect(0, 0, modalCanvas.width, modalCanvas.height);
+    context.lineWidth = 4;
+    context.lineCap = 'round';
+    context.strokeStyle = '#111827';
+
+    if (previewCanvas) {
+      context.drawImage(previewCanvas, 0, 0, modalCanvas.width, modalCanvas.height);
+    }
+  }, [activeSignIndex]);
+
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeSignatureModal();
+      }
+    };
+
+    if (activeSignIndex !== null) {
+      window.addEventListener('keydown', onEscape);
+    }
+
+    return () => {
+      window.removeEventListener('keydown', onEscape);
+    };
+  }, [activeSignIndex]);
+
   return (
     <div className="page-shell">
       <div className="shell-inner">
+        <div className="contract-account-card no-print">
+          <div className="contract-account-main">
+            <div className="contract-account-avatar" aria-hidden="true">
+              {accountInfo.displayName.charAt(0).toUpperCase()}
+            </div>
+            <div className="contract-account-meta">
+              <p className="contract-account-title">Phiên đăng nhập hiện tại</p>
+              <p className="contract-account-name">{accountInfo.displayName}</p>
+              <div className="contract-account-badges">
+                <span className="contract-role-badge">{roleLabel}</span>
+                <span className="contract-status-badge">Đang hoạt động</span>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" className="contract-logout-btn" onClick={onLogout}>
+            Đăng xuất
+          </button>
+        </div>
+
         <div className="toolbar no-print">
           <div className="toolbar-actions">
             <button onClick={onSave} className="save-btn" disabled={isSaving}>
@@ -48,7 +195,7 @@ export default function ContractDocument({
           {saveMessage ? <p className="save-message">{saveMessage}</p> : null}
         </div>
 
-        <div id="contract">
+        <div id="contract" className="contract-sheet">
           <div className="paper-body">
             <div className="header-row">
               <div>
@@ -172,26 +319,55 @@ export default function ContractDocument({
                 <div key={title} className="sign-item">
                   <p className="sign-title">{title}</p>
                   <canvas
-                    ref={(element) => signatures.setCanvasRef(index, element)}
+                    ref={(element) => {
+                      previewCanvasRefs.current[index] = element;
+                      signatures.setCanvasRef(index, element);
+                    }}
                     width={240}
                     height={160}
-                    className="sign-pad"
-                    onMouseDown={(event) => signatures.startDrawing(event, index)}
-                    onMouseMove={(event) => signatures.draw(event, index)}
-                    onMouseUp={signatures.stopDrawing}
-                    onMouseLeave={signatures.stopDrawing}
-                    onTouchStart={(event) => signatures.startDrawing(event, index)}
-                    onTouchMove={(event) => signatures.draw(event, index)}
-                    onTouchEnd={signatures.stopDrawing}
-                    onTouchCancel={signatures.stopDrawing}
+                    className="sign-pad sign-pad-preview"
                   />
-                  <button onClick={() => signatures.clearSignature(index)} className="clear-btn no-print">Xóa ký</button>
+                  <div className="sign-actions no-print">
+                    <button type="button" onClick={() => openSignatureModal(index)} className="sign-open-btn">Ký</button>
+                    <button type="button" onClick={() => signatures.clearSignature(index)} className="clear-btn">Xóa ký</button>
+                  </div>
                   <p className="hint">(Ký và ghi rõ họ tên)</p>
                 </div>
               ))}
             </div>
           </div>
         </div>
+
+        {activeSignIndex !== null ? (
+          <div className="signature-modal-backdrop no-print" role="dialog" aria-modal="true">
+            <div className="signature-modal">
+              <div className="signature-modal-head">
+                <h3>Ký tên: {SIGN_TITLES[activeSignIndex]}</h3>
+                <p>Vẽ chữ ký trong khung lớn rồi bấm Xác nhận để lưu.</p>
+              </div>
+
+              <div className="signature-modal-canvas-wrap">
+                <canvas
+                  ref={modalCanvasRef}
+                  width={920}
+                  height={430}
+                  className="signature-modal-canvas"
+                  onPointerDown={handleModalPointerDown}
+                  onPointerMove={handleModalPointerMove}
+                  onPointerUp={stopModalDrawing}
+                  onPointerLeave={stopModalDrawing}
+                  onPointerCancel={stopModalDrawing}
+                />
+              </div>
+
+              <div className="signature-modal-actions">
+                <button type="button" className="ghost-btn" onClick={clearModalCanvas}>Xóa nét ký</button>
+                <button type="button" className="ghost-btn" onClick={closeSignatureModal}>Hủy</button>
+                <button type="button" className="save-btn" onClick={confirmSignature}>Xác nhận chữ ký</button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
