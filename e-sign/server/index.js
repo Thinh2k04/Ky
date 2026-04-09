@@ -1,15 +1,19 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dirname } from 'node:path';
+import mongoose from 'mongoose';
+import { Contract } from './models/Contract.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const PORT = Number(process.env.PORT || 4000);
-const DATA_FILE = join(__dirname, 'data', 'contracts.json');
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/esign';
 const MAX_BODY_SIZE = 15 * 1024 * 1024;
+
+// Kết nối MongoDB
+await mongoose.connect(MONGO_URI);
+console.log(`Đã kết nối MongoDB: ${MONGO_URI}`);
 
 const sendJson = (res, statusCode, payload) => {
   res.writeHead(statusCode, {
@@ -19,26 +23,6 @@ const sendJson = (res, statusCode, payload) => {
     'Access-Control-Allow-Headers': 'Content-Type',
   });
   res.end(JSON.stringify(payload));
-};
-
-const ensureDataFile = async () => {
-  await mkdir(dirname(DATA_FILE), { recursive: true });
-  try {
-    await readFile(DATA_FILE, 'utf8');
-  } catch {
-    await writeFile(DATA_FILE, '[]\n', 'utf8');
-  }
-};
-
-const readContracts = async () => {
-  await ensureDataFile();
-  const raw = await readFile(DATA_FILE, 'utf8');
-  const parsed = JSON.parse(raw || '[]');
-  return Array.isArray(parsed) ? parsed : [];
-};
-
-const writeContracts = async (contracts) => {
-  await writeFile(DATA_FILE, JSON.stringify(contracts, null, 2), 'utf8');
 };
 
 const readBody = (req) => {
@@ -83,7 +67,7 @@ const server = createServer(async (req, res) => {
 
   if (req.method === 'GET' && req.url === '/api/contracts') {
     try {
-      const contracts = await readContracts();
+      const contracts = await Contract.find().sort({ createdAt: -1 }).lean();
       sendJson(res, 200, { total: contracts.length, items: contracts });
     } catch {
       sendJson(res, 500, { message: 'Không thể đọc dữ liệu.' });
@@ -102,19 +86,13 @@ const server = createServer(async (req, res) => {
         return;
       }
 
-      const contracts = await readContracts();
-      const record = {
-        id: randomUUID(),
-        createdAt: new Date().toISOString(),
+      const record = await Contract.create({
         formData,
         signatures,
         savedAtClient: payload?.savedAtClient ?? null,
-      };
+      });
 
-      contracts.push(record);
-      await writeContracts(contracts);
-
-      sendJson(res, 201, { id: record.id, message: 'Lưu dữ liệu thành công.' });
+      sendJson(res, 201, { id: record._id, message: 'Lưu dữ liệu thành công.' });
     } catch (error) {
       sendJson(res, 400, { message: error instanceof Error ? error.message : 'Không thể lưu dữ liệu.' });
     }
