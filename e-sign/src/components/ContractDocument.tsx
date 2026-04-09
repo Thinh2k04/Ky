@@ -16,11 +16,12 @@ interface ContractDocumentProps {
   onPrint: () => void;
   onSave: () => void;
   isSaving: boolean;
+  isExportingPdf: boolean;
   saveMessage: string;
   signatures: SignatureHandlers;
   accountInfo: {
     displayName: string;
-    role: string;
+    role: string;                                                     
   };
   onLogout: () => void;
 }
@@ -38,6 +39,7 @@ export default function ContractDocument({
   onPrint,
   onSave,
   isSaving,
+  isExportingPdf,
   saveMessage,
   signatures,
   accountInfo,
@@ -185,16 +187,6 @@ export default function ContractDocument({
           </button>
         </div>
 
-        <div className="toolbar no-print">
-          <div className="toolbar-actions">
-            <button onClick={onSave} className="save-btn" disabled={isSaving}>
-              {isSaving ? 'Đang lưu...' : 'Lưu dữ liệu'}
-            </button>
-            <button onClick={onPrint} className="print-btn">In / Xuất PDF</button>
-          </div>
-          {saveMessage ? <p className="save-message">{saveMessage}</p> : null}
-        </div>
-
         <div id="contract" className="contract-sheet">
           <div className="paper-body">
             <div className="header-row">
@@ -336,6 +328,18 @@ export default function ContractDocument({
               ))}
             </div>
           </div>
+        </div>
+
+        <div className="toolbar toolbar--bottom no-print">
+          <div className="toolbar-actions">
+            <button type="button" onClick={onSave} className="save-btn" disabled={isSaving || isExportingPdf}>
+              {isSaving ? 'Đang lưu hợp đồng...' : 'Lưu hợp đồng'}
+            </button>
+            <button type="button" onClick={onPrint} className="print-btn" disabled={isSaving || isExportingPdf}>
+              {isExportingPdf ? 'Đang xuất PDF...' : 'Xuất PDF'}
+            </button>
+          </div>
+          {saveMessage ? <p className="save-message">{saveMessage}</p> : null}
         </div>
 
         {activeSignIndex !== null ? (

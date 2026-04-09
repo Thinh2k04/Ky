@@ -32,35 +32,14 @@ export default function LoginScreen({ onLogin, isSubmitting }: LoginScreenProps)
         <span className="bubble bubble--5" />
       </div>
 
-      <div className="auth-shell">
-        <aside className="auth-hero">
-          <div>
-            <p className="eyebrow">Admin Portal</p>
-            <h1>Đăng nhập quản trị</h1>
-            <p className="auth-lead">
-              Đăng nhập để vào hệ thống. Tài khoản Admin vào được toàn bộ, tài khoản Hợp đồng chỉ vào màn hợp đồng.
-            </p>
-          </div>
+      <div className="auth-shell auth-shell--centered">
+        <section className="auth-card auth-card--login">
+          <div className="auth-card-glow auth-card-glow--one" aria-hidden="true" />
+          <div className="auth-card-glow auth-card-glow--two" aria-hidden="true" />
 
-          <div className="auth-feature-grid">
-            <article className="auth-feature-card">
-              <span>01</span>
-              <strong>Tài khoản Admin</strong>
-              <p>Truy cập dashboard Admin và màn hợp đồng.</p>
-            </article>
-            <article className="auth-feature-card">
-              <span>02</span>
-              <strong>Tài khoản Hợp đồng</strong>
-              <p>Truy cập màn hợp đồng để nhập liệu và ký.</p>
-            </article>
-          </div>
-        </aside>
-
-        <section className="auth-card">
-          <form className="auth-form" onSubmit={handleSubmit}>
-            <div className="auth-form-head">
-              <h2>Đăng nhập</h2>
-              <p>Nhập tài khoản quản trị để mở dashboard.</p>
+          <form className="auth-form auth-form--centered" onSubmit={handleSubmit}>
+            <div className="auth-form-head auth-form-head--center">
+              <h1>Đăng nhập</h1>
             </div>
 
             <label className="field-group">

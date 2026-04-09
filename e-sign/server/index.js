@@ -41,6 +41,29 @@ const writeContracts = async (contracts) => {
   await writeFile(DATA_FILE, JSON.stringify(contracts, null, 2), 'utf8');
 };
 
+const normalizeFormData = (formData) => {
+  if (!formData || typeof formData !== 'object') {
+    return formData;
+  }
+
+  const day = typeof formData.ngay === 'string' ? formData.ngay.trim().padStart(2, '0') : '';
+  const month = typeof formData.thang === 'string' ? formData.thang.trim().padStart(2, '0') : '';
+  const year = typeof formData.nam === 'string' ? formData.nam.trim() : '';
+  const signedDate = [day, month, year].filter(Boolean).join('/');
+
+  const nextFormData = { ...formData };
+
+  if (signedDate) {
+    nextFormData.signedDate = signedDate;
+  }
+
+  delete nextFormData.ngay;
+  delete nextFormData.thang;
+  delete nextFormData.nam;
+
+  return nextFormData;
+};
+
 const readBody = (req) => {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -94,7 +117,7 @@ const server = createServer(async (req, res) => {
   if (req.method === 'POST' && req.url === '/api/contracts') {
     try {
       const payload = await readBody(req);
-      const formData = payload?.formData;
+      const formData = normalizeFormData(payload?.formData);
       const signatures = Array.isArray(payload?.signatures) ? payload.signatures : [];
 
       if (!formData || typeof formData !== 'object') {

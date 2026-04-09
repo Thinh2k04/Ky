@@ -30,17 +30,31 @@ export default function AdminDashboard({ session, onLogout }: AdminDashboardProp
 
     try {
       const response = await fetch('/api/contracts');
-      const payload = (await response.json()) as Partial<{ items: StoredContractRecord[]; message: string }>;
+      const rawText = await response.text();
+      const isJson = response.headers.get('content-type')?.includes('application/json');
+      const payload = (isJson && rawText ? JSON.parse(rawText) : {}) as Partial<{
+        items: StoredContractRecord[];
+        message: string;
+      }>;
       const items = Array.isArray(payload.items) ? payload.items : [];
 
       if (!response.ok) {
         throw new Error(payload.message || 'Không thể tải danh sách hợp đồng.');
       }
 
+      if (!isJson && rawText) {
+        throw new Error('Máy chủ phản hồi sai định dạng dữ liệu. Hãy kiểm tra backend API.');
+      }
+
       setContracts(items);
       setSelectedId((current) => current ?? items[0]?.id ?? null);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : 'Không thể tải danh sách hợp đồng.');
+      const message = loadError instanceof Error ? loadError.message : 'Không thể tải danh sách hợp đồng.';
+      if (/Unexpected end of JSON input/i.test(message)) {
+        setError('Không nhận được dữ liệu hợp lệ từ máy chủ. Hãy chạy backend bằng lệnh npm run dev:full.');
+      } else {
+        setError(message);
+      }
     } finally {
       setIsLoading(false);
     }
