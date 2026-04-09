@@ -17,6 +17,26 @@ const formatDateTime = (value: string) => {
   }
 };
 
+const getCustomerName = (contract: StoredContractRecord) => contract.khachHang?.ten || contract.formData?.chuCuaHang || 'Chưa nhập';
+
+const getCustomerCccd = (contract: StoredContractRecord) => contract.khachHang?.cccd || contract.formData?.cccd || 'Chưa nhập';
+
+const getCustomerPhone = (contract: StoredContractRecord) => contract.khachHang?.sdt || contract.formData?.sdt || 'Chưa nhập';
+
+const getCustomerAddress = (contract: StoredContractRecord) => contract.khachHang?.diaChi || contract.formData?.diaChi || 'Chưa nhập';
+
+const getContractDetail = (contract: StoredContractRecord) => contract.hopDongChiTiet ?? null;
+
+const getSignatureEntries = (contract: StoredContractRecord) => contract.lichSuKyDuyet ?? [];
+
+const getSignedSignatureCount = (contract: StoredContractRecord) => {
+  if (contract.lichSuKyDuyet?.length) {
+    return contract.lichSuKyDuyet.filter((entry) => Boolean(entry.signatureDataUrl)).length;
+  }
+
+  return contract.signatures?.filter(Boolean).length ?? 0;
+};
+
 export default function AdminDashboard({ session, onLogout }: AdminDashboardProps) {
   const [contracts, setContracts] = useState<StoredContractRecord[]>([]);
   const [search, setSearch] = useState('');
@@ -70,11 +90,12 @@ export default function AdminDashboard({ session, onLogout }: AdminDashboardProp
 
     return contracts.filter((contract) => {
       const text = [
-        contract.formData.chuCuaHang,
-        contract.formData.cccd,
-        contract.formData.sdt,
-        contract.formData.maKhachHang,
-        contract.formData.diaChi,
+        getCustomerName(contract),
+        getCustomerCccd(contract),
+        getCustomerPhone(contract),
+        contract.khachHang?.maKhachHang || contract.formData?.maKhachHang || '',
+        getCustomerAddress(contract),
+        getContractDetail(contract)?.signedDate ?? '',
       ]
         .join(' ')
         .toLowerCase();
@@ -84,7 +105,7 @@ export default function AdminDashboard({ session, onLogout }: AdminDashboardProp
   }, [contracts, search]);
 
   const selectedContract = filteredContracts.find((contract) => contract.id === selectedId) ?? filteredContracts[0] ?? null;
-  const totalSignatures = contracts.reduce((total, contract) => total + contract.signatures.filter(Boolean).length, 0);
+  const totalSignatures = contracts.reduce((total, contract) => total + getSignedSignatureCount(contract), 0);
   const latestContract = contracts[0];
 
   return (
@@ -172,10 +193,10 @@ export default function AdminDashboard({ session, onLogout }: AdminDashboardProp
                         onClick={() => setSelectedId(contract.id)}
                       >
                         <td>{formatDateTime(contract.createdAt)}</td>
-                        <td>{contract.formData.chuCuaHang || 'Chưa nhập'}</td>
-                        <td>{contract.formData.cccd || 'Chưa nhập'}</td>
-                        <td>{contract.formData.sdt || 'Chưa nhập'}</td>
-                        <td>{contract.signatures.filter(Boolean).length}/4</td>
+                        <td>{getCustomerName(contract)}</td>
+                        <td>{getCustomerCccd(contract)}</td>
+                        <td>{getCustomerPhone(contract)}</td>
+                        <td>{getSignedSignatureCount(contract)}/4</td>
                       </tr>
                     ))}
                   </tbody>
@@ -193,29 +214,43 @@ export default function AdminDashboard({ session, onLogout }: AdminDashboardProp
                 <div className="detail-stack">
                   <div className="detail-block">
                     <span>Thông tin chính</span>
-                    <strong>{selectedContract.formData.chuCuaHang || 'Chưa nhập tên cửa hàng'}</strong>
+                    <strong>{getCustomerName(selectedContract)}</strong>
                     <p>
-                      {selectedContract.formData.cccd || 'Chưa nhập CCCD'} • {selectedContract.formData.sdt || 'Chưa nhập SĐT'}
+                      {getCustomerCccd(selectedContract)} • {getCustomerPhone(selectedContract)}
                     </p>
-                    <p>{selectedContract.formData.diaChi || 'Chưa nhập địa chỉ'}</p>
+                    <p>{getCustomerAddress(selectedContract)}</p>
+                    <p>Ngày ký: {getContractDetail(selectedContract)?.signedDate || selectedContract.hopDong?.signedDate || 'Chưa có'}</p>
                   </div>
 
                   <div className="detail-block">
-                    <span>Trạng thái lưu</span>
-                    <strong>{selectedContract.savedAtClient ? formatDateTime(selectedContract.savedAtClient) : 'Không có thời gian client'}</strong>
-                    <p>Tạo lúc: {formatDateTime(selectedContract.createdAt)}</p>
+                    <span>Nhân viên / Tài khoản</span>
+                    <strong>{selectedContract.nhanVien?.hoTen || selectedContract.taiKhoan?.displayName || 'Không rõ'}</strong>
+                    <p>Tài khoản: {selectedContract.taiKhoan?.username || 'Không rõ'}</p>
+                    <p>Vai trò: {selectedContract.taiKhoan?.role || 'Không rõ'}</p>
                   </div>
 
                   <div className="detail-block">
-                    <span>Chữ ký</span>
+                    <span>Lịch sử ký duyệt</span>
                     <div className="signature-preview-grid">
-                      {selectedContract.signatures.map((signature, index) => (
+                      {(getSignatureEntries(selectedContract).length
+                        ? getSignatureEntries(selectedContract)
+                        : (selectedContract.signatures ?? []).map((signature, index) => ({
+                            id: `${selectedContract.id}-${index}`,
+                            hopDongId: selectedContract.id,
+                            vaiTro: `Vị trí ${index + 1}`,
+                            nguoiKy: `Vị trí ${index + 1}`,
+                            signatureDataUrl: signature,
+                            trangThai: signature ? 'da_ky' : 'trong',
+                            kyLucAt: selectedContract.savedAtClient || selectedContract.createdAt,
+                          }))
+                      ).map((entry, index) => (
                         <figure key={`${selectedContract.id}-${index}`} className="signature-preview">
-                          {signature ? <img src={signature} alt={`Chữ ký ${index + 1}`} /> : <div className="signature-empty">Trống</div>}
-                          <figcaption>Vị trí {index + 1}</figcaption>
+                          {entry.signatureDataUrl ? <img src={entry.signatureDataUrl} alt={`Chữ ký ${index + 1}`} /> : <div className="signature-empty">Trống</div>}
+                          <figcaption>{entry.vaiTro}</figcaption>
                         </figure>
                       ))}
                     </div>
+                    <p>Tệp đính kèm: {selectedContract.tepDinhKem?.length ?? 0}</p>
                   </div>
                 </div>
               ) : (

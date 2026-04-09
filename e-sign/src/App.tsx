@@ -35,7 +35,15 @@ export default function ThoaThuanTrungBay() {
     const { ngay, thang, nam, ...restFormData } = formData;
 
     const payload = {
-      formData: {
+      savedBy: session?.user ?? null,
+      khachHang: {
+        ten: restFormData.chuCuaHang,
+        cccd: restFormData.cccd,
+        sdt: restFormData.sdt,
+        maKhachHang: restFormData.maKhachHang,
+        diaChi: restFormData.diaChi,
+      },
+      hopDongChiTiet: {
         ...restFormData,
         signedDate,
       },
