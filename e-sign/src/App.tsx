@@ -8,44 +8,38 @@ import ContractDocument from './components/ContractDocument';
 import LoginScreen from './login/login';
 import { useAdminSession } from './hooks/useAdminSession';
 import { useSignatureCanvas } from './hooks/useSignatureCanvas';
+import { SIGN_TITLES } from './features/contracts/constants';
 import { buildContractSavePayload } from './features/contracts/payload';
-import { getMissingSignatureIndexes, getMissingSignatureMessage, getRequiredSignatureIndexesByRole } from './features/contracts/signatures';
 import { validateContractFormData } from './features/contracts/validation';
 import { createInitialContractFormData } from './types/contract';
 
 export default function ThoaThuanTrungBay() {
   const [formData, setFormData] = useState(createInitialContractFormData);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSaveConfirmOpen, setIsSaveConfirmOpen] = useState(false);
+  const [isSignatureSyncing, setIsSignatureSyncing] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
   const [saveMessage, setSaveMessage] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [currentContractId, setCurrentContractId] = useState('');
   const signatures = useSignatureCanvas(4);
   const { session, isAuthenticated, isHydrating, login, logout } = useAdminSession();
+
+  const resetContractDraft = () => {
+    setFormData(createInitialContractFormData());
+    for (let index = 0; index < 4; index += 1) {
+      signatures.clearSignature(index);
+    }
+    setCurrentContractId('');
+  };
 
   const handleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = event.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
-  const saveContract = async () => {
-    const currentRole = session?.user.role;
-
-    if (currentRole === 'contract') {
-      const validationError = validateContractFormData(formData);
-      if (validationError) {
-        setSaveMessage(validationError);
-        return;
-      }
-    }
-
+  const runSaveContract = async () => {
     const signaturesData = signatures.getSignatureDataUrls();
-    const requiredIndexes = getRequiredSignatureIndexesByRole(currentRole || '');
-    const missingSignatures = getMissingSignatureIndexes(signaturesData, requiredIndexes);
-
-    if (missingSignatures.length > 0) {
-      setSaveMessage(getMissingSignatureMessage(currentRole || ''));
-      return;
-    }
 
     setIsSaving(true);
     setSaveMessage('');
@@ -68,12 +62,38 @@ export default function ThoaThuanTrungBay() {
       }
 
       const result = await response.json();
-      setSaveMessage(`Đã lưu dữ liệu thành công (Mã: ${result.id}).`);
+      setCurrentContractId(typeof result?.id === 'string' ? result.id : '');
+      setSaveMessage('');
+      resetContractDraft();
     } catch (error) {
       setSaveMessage('Lưu dữ liệu thất bại. Kiểm tra backend rồi thử lại.');
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const saveContract = async () => {
+    const currentRole = session?.user.role;
+
+    if (currentRole === 'contract') {
+      const validationError = validateContractFormData(formData);
+      if (validationError) {
+        setSaveMessage(validationError);
+        return;
+      }
+    }
+
+    setIsSaveConfirmOpen(true);
+  };
+
+  const confirmSaveContract = () => {
+    setIsSaveConfirmOpen(false);
+    void runSaveContract();
+  };
+
+  const cancelSaveContract = () => {
+    setIsSaveConfirmOpen(false);
+    setSaveMessage('Đã hủy lưu hợp đồng.');
   };
 
   const exportContractToPdf = async () => {
@@ -193,6 +213,108 @@ export default function ThoaThuanTrungBay() {
     void exportContractToPdf();
   };
 
+  const syncSignatureToApi = async (index: number, signatureDataUrl: string) => {
+    let response = await fetch(`/api/contracts/${currentContractId}/signatures`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        signatureIndex: index,
+        signatureDataUrl,
+        signer: session?.user.displayName || '',
+      }),
+    });
+
+    if (response.status === 404 || response.status === 405) {
+      response = await fetch('/api/contracts/signatures', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contractId: currentContractId,
+          signatureIndex: index,
+          signatureDataUrl,
+          signer: session?.user.displayName || '',
+        }),
+      });
+    }
+
+    const payload = (await response.json()) as Partial<{ message: string }>;
+    if (!response.ok) {
+      throw new Error(payload.message || 'Không thể lưu chữ ký vào dữ liệu ký.');
+    }
+  };
+
+  const removeSignatureFromApi = async (index: number) => {
+    let response = await fetch(`/api/contracts/${currentContractId}/signatures/${index}`, {
+      method: 'DELETE',
+    });
+
+    if (response.status === 404 || response.status === 405) {
+      response = await fetch('/api/contracts/signatures/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contractId: currentContractId,
+          signatureIndex: index,
+        }),
+      });
+    }
+
+    const payload = (await response.json()) as Partial<{ message: string }>;
+    if (!response.ok) {
+      throw new Error(payload.message || 'Không thể xóa chữ ký khỏi dữ liệu ký.');
+    }
+  };
+
+  const handleConfirmSignature = async (index: number) => {
+    const signaturesData = signatures.getSignatureDataUrls();
+    const signatureDataUrl = typeof signaturesData[index] === 'string' ? signaturesData[index].trim() : '';
+    const signatureTitle = SIGN_TITLES[index] || `Vị trí ${index + 1}`;
+
+    if (!currentContractId) {
+      setSaveMessage(`Đã xác nhận chữ ký ${signatureTitle}.`);
+      return true;
+    }
+
+    setIsSignatureSyncing(true);
+    setSaveMessage('');
+
+    try {
+      await syncSignatureToApi(index, signatureDataUrl);
+      setSaveMessage(`Đã lưu chữ ký ${signatureTitle} vào dữ liệu ký.`);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Lưu chữ ký thất bại.';
+      setSaveMessage(message);
+      return false;
+    } finally {
+      setIsSignatureSyncing(false);
+    }
+  };
+
+  const handleClearSignature = async (index: number) => {
+    const signatureTitle = SIGN_TITLES[index] || `Vị trí ${index + 1}`;
+
+    if (!currentContractId) {
+      setSaveMessage(`Đã xóa chữ ký ${signatureTitle} trên form.`);
+      return true;
+    }
+
+    setIsSignatureSyncing(true);
+    setSaveMessage('');
+
+    try {
+      await removeSignatureFromApi(index);
+      setSaveMessage(`Đã xóa dữ liệu chữ ký ${signatureTitle}.`);
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Xóa chữ ký thất bại.';
+      setSaveMessage(message);
+      return false;
+    } finally {
+      setIsSignatureSyncing(false);
+    }
+  };
+
   const handleLogin = async (credentials: { username: string; password: string }) => {
     setIsLoggingIn(true);
 
@@ -240,7 +362,10 @@ export default function ThoaThuanTrungBay() {
         onInputChange={handleChange}
         onPrint={printDocument}
         onSave={saveContract}
+        onConfirmSignature={handleConfirmSignature}
+        onClearSignature={handleClearSignature}
         isSaving={isSaving}
+        isSignatureSyncing={isSignatureSyncing}
         isExportingPdf={isExportingPdf}
         saveMessage={saveMessage}
         signatures={signatures}
@@ -250,6 +375,24 @@ export default function ThoaThuanTrungBay() {
         }}
         onLogout={handleLogout}
       />
+
+      {isSaveConfirmOpen ? (
+        <div className="contract-confirm-backdrop" role="dialog" aria-modal="true" aria-label="Xác nhận lưu hợp đồng">
+          <div className="contract-confirm-card">
+            <p className="contract-confirm-eyebrow">Xác nhận lưu</p>
+            <h3>Bạn có muốn lưu hợp đồng này không?</h3>
+            <p>Dữ liệu hợp đồng và chữ ký hiện tại sẽ được ghi vào hệ thống.</p>
+            <div className="contract-confirm-actions">
+              <button type="button" className="ghost-btn" onClick={cancelSaveContract}>
+                Hủy
+              </button>
+              <button type="button" className="save-btn" onClick={confirmSaveContract}>
+                Xác nhận lưu
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

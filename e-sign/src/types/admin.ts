@@ -49,6 +49,7 @@ export interface HopDongRecord {
 export interface LichSuKyDuyetRecord {
   id: string;
   hopDongId: string;
+  hopDongChiTietId?: string;
   vaiTro: string;
   nguoiKy: string;
   signatureDataUrl: string;
@@ -78,4 +79,13 @@ export interface StoredContractRecord {
   tepDinhKem: TepDinhKemRecord[];
   formData?: ContractFormData;
   signatures?: string[];
+}
+
+export interface SignatureRecord {
+  contractId: string;
+  hopDongChiTietId: string;
+  signatures: string[];
+  lichSuKyDuyet: LichSuKyDuyetRecord[];
+  savedAtClient: string;
+  updatedAt: string;
 }

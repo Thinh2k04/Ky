@@ -9,15 +9,17 @@ const __dirname = dirname(__filename);
 
 const PORT = Number(process.env.PORT || 4000);
 const DATA_FILE = join(__dirname, 'data', 'contracts.json');
+const SIGNATURE_FILE = join(__dirname, 'data', 'signatures.json');
 const MAX_BODY_SIZE = 15 * 1024 * 1024;
 const SIGN_TITLES = ['CỬA HÀNG', 'NHÂN VIÊN', 'GIÁM SÁT', 'CÔNG TY TNHH THƯƠNG MẠI ĐẠI VIỆT FOOD'];
 const EMPTY_CONTRACTS = '[]\n';
+const EMPTY_SIGNATURES = '[]\n';
 
 const sendJson = (res, statusCode, payload) => {
   res.writeHead(statusCode, {
     'Content-Type': 'application/json; charset=utf-8',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET,POST,PATCH,OPTIONS',
+    'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   });
   res.end(JSON.stringify(payload));
@@ -29,6 +31,131 @@ const toSafeSignatures = (value) => {
     const signature = source[index];
     return typeof signature === 'string' ? signature : '';
   });
+};
+
+const toSafeSignatureHistory = (value, contractId, fallbackSavedAtClient, fallbackSignatures = []) => {
+  const source = Array.isArray(value) ? value : [];
+
+  return SIGN_TITLES.map((title, index) => {
+    const previousEntry = source[index];
+    const fallbackSignature = typeof fallbackSignatures[index] === 'string' ? fallbackSignatures[index] : '';
+    const signatureDataUrl = typeof previousEntry?.signatureDataUrl === 'string' ? previousEntry.signatureDataUrl : fallbackSignature;
+
+    return {
+      id: typeof previousEntry?.id === 'string' ? previousEntry.id : `ls-${contractId}-${index + 1}`,
+      hopDongId: typeof previousEntry?.hopDongId === 'string' ? previousEntry.hopDongId : contractId,
+      hopDongChiTietId: typeof previousEntry?.hopDongChiTietId === 'string' ? previousEntry.hopDongChiTietId : contractId,
+      vaiTro: typeof previousEntry?.vaiTro === 'string' ? previousEntry.vaiTro : title,
+      nguoiKy: typeof previousEntry?.nguoiKy === 'string' ? previousEntry.nguoiKy : title,
+      signatureDataUrl,
+      trangThai: previousEntry?.trangThai === 'huy' ? 'huy' : signatureDataUrl ? 'da_ky' : 'trong',
+      kyLucAt: typeof previousEntry?.kyLucAt === 'string' ? previousEntry.kyLucAt : fallbackSavedAtClient,
+    };
+  });
+};
+
+const createSignatureRecord = (contractId, signatures, history, savedAtClient) => ({
+  contractId,
+  hopDongChiTietId: contractId,
+  signatures: toSafeSignatures(signatures),
+  lichSuKyDuyet: toSafeSignatureHistory(history, contractId, savedAtClient, signatures),
+  savedAtClient,
+  updatedAt: savedAtClient,
+});
+
+const normalizeSignatureRecord = (record) => {
+  if (!record || typeof record !== 'object') {
+    return null;
+  }
+
+  const contractId = typeof record.contractId === 'string' ? record.contractId : typeof record.hopDongChiTietId === 'string' ? record.hopDongChiTietId : typeof record.hopDongId === 'string' ? record.hopDongId : '';
+
+  if (!contractId) {
+    return null;
+  }
+
+  const savedAtClient = typeof record.savedAtClient === 'string' ? record.savedAtClient : typeof record.updatedAt === 'string' ? record.updatedAt : new Date().toISOString();
+
+  return createSignatureRecord(contractId, record.signatures, record.lichSuKyDuyet, savedAtClient);
+};
+
+const extractSignatureRecordFromContract = (record) => {
+  const contractId = typeof record?.id === 'string' ? record.id : '';
+
+  if (!contractId) {
+    return null;
+  }
+
+  const signatures = Array.isArray(record?.signatures) ? record.signatures : [];
+  const history = Array.isArray(record?.lichSuKyDuyet) ? record.lichSuKyDuyet : [];
+
+  if (!signatures.some(Boolean) && !history.some((entry) => Boolean(entry?.signatureDataUrl))) {
+    return null;
+  }
+
+  const savedAtClient = typeof record?.savedAtClient === 'string' ? record.savedAtClient : typeof record?.createdAt === 'string' ? record.createdAt : new Date().toISOString();
+  return createSignatureRecord(contractId, signatures, history, savedAtClient);
+};
+
+const mergeSignatureRecord = (contract, signatureRecord) => {
+  const contractId = typeof contract?.id === 'string' ? contract.id : '';
+  const fallbackSignatures = Array.isArray(contract?.signatures) ? contract.signatures : [];
+  const fallbackHistory = Array.isArray(contract?.lichSuKyDuyet) ? contract.lichSuKyDuyet : [];
+  const mergedSignatures = signatureRecord ? toSafeSignatures(signatureRecord.signatures) : toSafeSignatures(fallbackSignatures);
+  const mergedHistory = signatureRecord
+    ? toSafeSignatureHistory(signatureRecord.lichSuKyDuyet, contractId, signatureRecord.savedAtClient || contract?.savedAtClient || contract?.createdAt || new Date().toISOString(), mergedSignatures)
+    : toSafeSignatureHistory(fallbackHistory, contractId, contract?.savedAtClient || contract?.createdAt || new Date().toISOString(), mergedSignatures);
+  const signedCount = mergedSignatures.filter(Boolean).length;
+  const nextTrangThai = signedCount === 0 ? 'cho_ky' : signedCount >= SIGN_TITLES.length ? 'da_ky' : 'da_luu';
+
+  return {
+    ...contract,
+    savedAtClient: signatureRecord?.savedAtClient || contract.savedAtClient || null,
+    signatures: mergedSignatures,
+    lichSuKyDuyet: mergedHistory,
+    hopDong: {
+      ...contract.hopDong,
+      trangThai: nextTrangThai,
+    },
+  };
+};
+
+const readJsonArray = async (filePath, emptyContent) => {
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    const parsed = raw.trim() ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    await writeFile(filePath, emptyContent, 'utf8');
+    return [];
+  }
+};
+
+const writeJsonArray = async (filePath, value) => {
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+};
+
+const readSignatureRecords = async () => {
+  await ensureDataFile();
+  const rawRecords = await readJsonArray(SIGNATURE_FILE, EMPTY_SIGNATURES);
+  return rawRecords.map((record) => normalizeSignatureRecord(record)).filter(Boolean);
+};
+
+const findSignatureRecordByContractId = async (contractId) => {
+  const signatureRecords = await readSignatureRecords();
+  return signatureRecords.find((record) => record.contractId === contractId) || null;
+};
+
+const writeSignatureRecords = async (records) => {
+  const compacted = records.map((record) =>
+    createSignatureRecord(
+      typeof record.contractId === 'string' ? record.contractId : typeof record.hopDongChiTietId === 'string' ? record.hopDongChiTietId : '',
+      record.signatures,
+      record.lichSuKyDuyet,
+      record.savedAtClient || record.updatedAt || new Date().toISOString()
+    )
+  );
+  await writeJsonArray(SIGNATURE_FILE, compacted);
 };
 
 const updateContractSignatureByRole = async ({ contractId, signatureIndex, signatureDataUrl, signer }) => {
@@ -54,17 +181,23 @@ const updateContractSignatureByRole = async ({ contractId, signatureIndex, signa
   }
 
   const targetContract = contracts[contractIndex];
-  const nextSignatures = toSafeSignatures(targetContract?.signatures);
+  const currentSignatureRecord = await findSignatureRecordByContractId(contractId);
+  const nextSignatures = toSafeSignatures(currentSignatureRecord?.signatures || targetContract?.signatures);
   nextSignatures[signatureIndex] = signatureDataUrl;
 
   const now = new Date().toISOString();
   const nextEntries = SIGN_TITLES.map((title, index) => {
-    const previousEntry = Array.isArray(targetContract?.lichSuKyDuyet) ? targetContract.lichSuKyDuyet[index] : null;
+    const previousEntry = Array.isArray(currentSignatureRecord?.lichSuKyDuyet)
+      ? currentSignatureRecord.lichSuKyDuyet[index]
+      : Array.isArray(targetContract?.lichSuKyDuyet)
+        ? targetContract.lichSuKyDuyet[index]
+        : null;
     const entrySignature = nextSignatures[index] || '';
 
     return {
       id: previousEntry?.id || `ls-${targetContract.hopDong?.id || targetContract.id}-${index + 1}`,
       hopDongId: previousEntry?.hopDongId || targetContract.hopDong?.id || `hd-${targetContract.id}`,
+      hopDongChiTietId: previousEntry?.hopDongChiTietId || targetContract.id,
       vaiTro: title,
       nguoiKy: index === signatureIndex ? signer || title : previousEntry?.nguoiKy || title,
       signatureDataUrl: entrySignature,
@@ -76,17 +209,97 @@ const updateContractSignatureByRole = async ({ contractId, signatureIndex, signa
   const signedCount = nextSignatures.filter(Boolean).length;
   const nextTrangThai = signedCount === 0 ? 'cho_ky' : signedCount >= SIGN_TITLES.length ? 'da_ky' : 'da_luu';
 
+  const nextSignatureRecords = await readSignatureRecords();
+  const signatureRecordIndex = nextSignatureRecords.findIndex((item) => item.contractId === contractId);
+  const nextSignatureRecord = createSignatureRecord(contractId, nextSignatures, nextEntries, now);
+
+  if (signatureRecordIndex >= 0) {
+    nextSignatureRecords[signatureRecordIndex] = nextSignatureRecord;
+  } else {
+    nextSignatureRecords.push(nextSignatureRecord);
+  }
+
   contracts[contractIndex] = {
     ...targetContract,
     savedAtClient: now,
-    signatures: nextSignatures,
-    lichSuKyDuyet: nextEntries,
     hopDong: {
       ...targetContract.hopDong,
       trangThai: nextTrangThai,
     },
   };
 
+  await writeSignatureRecords(nextSignatureRecords);
+  await writeContracts(contracts);
+  return targetContract.id;
+};
+
+const clearContractSignatureByRole = async ({ contractId, signatureIndex, signer }) => {
+  if (!Number.isInteger(signatureIndex) || signatureIndex < 0 || signatureIndex > 3) {
+    throw new Error('Vị trí chữ ký không hợp lệ.');
+  }
+
+  if (!contractId) {
+    throw new Error('Thiếu mã hợp đồng.');
+  }
+
+  const contracts = await readContracts();
+  const contractIndex = contracts.findIndex((item) => item?.id === contractId);
+
+  if (contractIndex < 0) {
+    const notFoundError = new Error('Không tìm thấy hợp đồng.');
+    notFoundError.statusCode = 404;
+    throw notFoundError;
+  }
+
+  const targetContract = contracts[contractIndex];
+  const currentSignatureRecord = await findSignatureRecordByContractId(contractId);
+  const nextSignatures = toSafeSignatures(currentSignatureRecord?.signatures || targetContract?.signatures);
+  nextSignatures[signatureIndex] = '';
+
+  const now = new Date().toISOString();
+  const nextEntries = SIGN_TITLES.map((title, index) => {
+    const previousEntry = Array.isArray(currentSignatureRecord?.lichSuKyDuyet)
+      ? currentSignatureRecord.lichSuKyDuyet[index]
+      : Array.isArray(targetContract?.lichSuKyDuyet)
+        ? targetContract.lichSuKyDuyet[index]
+        : null;
+    const entrySignature = nextSignatures[index] || '';
+
+    return {
+      id: previousEntry?.id || `ls-${targetContract.hopDong?.id || targetContract.id}-${index + 1}`,
+      hopDongId: previousEntry?.hopDongId || targetContract.hopDong?.id || `hd-${targetContract.id}`,
+      hopDongChiTietId: previousEntry?.hopDongChiTietId || targetContract.id,
+      vaiTro: title,
+      nguoiKy: index === signatureIndex ? signer || previousEntry?.nguoiKy || title : previousEntry?.nguoiKy || title,
+      signatureDataUrl: entrySignature,
+      trangThai: entrySignature ? 'da_ky' : 'trong',
+      kyLucAt: now,
+    };
+  });
+
+  const signedCount = nextSignatures.filter(Boolean).length;
+  const nextTrangThai = signedCount === 0 ? 'cho_ky' : signedCount >= SIGN_TITLES.length ? 'da_ky' : 'da_luu';
+
+  const nextSignatureRecords = await readSignatureRecords();
+  const signatureRecordIndex = nextSignatureRecords.findIndex((item) => item.contractId === contractId);
+  const nextSignatureRecord = createSignatureRecord(contractId, nextSignatures, nextEntries, now);
+
+  if (signatureRecordIndex >= 0) {
+    nextSignatureRecords[signatureRecordIndex] = nextSignatureRecord;
+  } else {
+    nextSignatureRecords.push(nextSignatureRecord);
+  }
+
+  contracts[contractIndex] = {
+    ...targetContract,
+    savedAtClient: now,
+    hopDong: {
+      ...targetContract.hopDong,
+      trangThai: nextTrangThai,
+    },
+  };
+
+  await writeSignatureRecords(nextSignatureRecords);
   await writeContracts(contracts);
   return targetContract.id;
 };
@@ -100,6 +313,15 @@ const ensureDataFile = async () => {
     }
   } catch {
     await writeFile(DATA_FILE, EMPTY_CONTRACTS, 'utf8');
+  }
+
+  try {
+    const content = await readFile(SIGNATURE_FILE, 'utf8');
+    if (!content.trim()) {
+      await writeFile(SIGNATURE_FILE, EMPTY_SIGNATURES, 'utf8');
+    }
+  } catch {
+    await writeFile(SIGNATURE_FILE, EMPTY_SIGNATURES, 'utf8');
   }
 };
 
@@ -167,6 +389,7 @@ const createLichSuKyDuyet = (signatures, contractId, savedAtClient) => {
   return signatures.map((signature, index) => ({
     id: `ls-${contractId}-${index + 1}`,
     hopDongId: contractId,
+    hopDongChiTietId: contractId,
     vaiTro: SIGN_TITLES[index] ?? `Vị trí ${index + 1}`,
     nguoiKy: SIGN_TITLES[index] ?? `Vị trí ${index + 1}`,
     signatureDataUrl: signature || '',
@@ -218,6 +441,32 @@ const extractSignatures = (record) => {
   return [];
 };
 
+const mergeLegacySignatureData = async (contracts) => {
+  const signatureRecords = await readSignatureRecords();
+  const signatureRecordMap = new Map(signatureRecords.map((record) => [record.contractId, record]));
+  let needsSignatureWrite = false;
+
+  const mergedContracts = contracts.map((contract) => {
+    const legacySignatureRecord = extractSignatureRecordFromContract(contract);
+    const existingSignatureRecord = signatureRecordMap.get(contract.id);
+
+    if (!existingSignatureRecord && legacySignatureRecord) {
+      signatureRecordMap.set(contract.id, legacySignatureRecord);
+      signatureRecords.push(legacySignatureRecord);
+      needsSignatureWrite = true;
+    }
+
+    return mergeSignatureRecord(contract, existingSignatureRecord || legacySignatureRecord);
+  });
+
+  if (needsSignatureWrite) {
+    await writeSignatureRecords(signatureRecords);
+    await writeContracts(mergedContracts);
+  }
+
+  return mergedContracts;
+};
+
 const compactAttachment = (attachment) => {
   const source = asPlainObject(attachment);
   if (!source) {
@@ -237,7 +486,6 @@ const toCompactRecord = (record) => {
   const createdAt = typeof record?.createdAt === 'string' ? record.createdAt : new Date().toISOString();
   const savedAtClient = typeof record?.savedAtClient === 'string' ? record.savedAtClient : null;
   const sourceSavedBy = record?.savedBy ?? record?.taiKhoan ?? record?.nhanVien?.taiKhoan;
-  const signatures = extractSignatures(record);
 
   const attachments = Array.isArray(record?.tepDinhKem)
     ? record.tepDinhKem.map((item) => compactAttachment(item)).filter(Boolean)
@@ -250,7 +498,6 @@ const toCompactRecord = (record) => {
     savedBy: sanitizeSavedBy(sourceSavedBy, normalizedId),
     formData: asPlainObject(record?.formData),
     hopDongChiTiet: asPlainObject(record?.hopDongChiTiet),
-    signatures,
     tepDinhKem: attachments,
   };
 };
@@ -323,7 +570,8 @@ const readContracts = async () => {
   try {
     const raw = await readFile(DATA_FILE, 'utf8');
     const parsed = raw.trim() ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed.map((record) => normalizeStoredRecord(record)) : [];
+    const contracts = Array.isArray(parsed) ? parsed.map((record) => normalizeStoredRecord(record)) : [];
+    return mergeLegacySignatureData(contracts);
   } catch {
     await writeFile(DATA_FILE, EMPTY_CONTRACTS, 'utf8');
     return [];
@@ -332,7 +580,7 @@ const readContracts = async () => {
 
 const writeContracts = async (contracts) => {
   const compacted = contracts.map((record) => toCompactRecord(record));
-  await writeFile(DATA_FILE, `${JSON.stringify(compacted, null, 2)}\n`, 'utf8');
+  await writeJsonArray(DATA_FILE, compacted);
 };
 
 const readBody = (req) => {
@@ -392,20 +640,33 @@ const server = createServer(async (req, res) => {
     try {
       const payload = await readBody(req);
       const contracts = await readContracts();
+      const now = new Date().toISOString();
+      const recordId = randomUUID();
+      const signatures = toSafeSignatures(payload?.signatures);
+      const signatureHistory = Array.isArray(payload?.lichSuKyDuyet) ? payload.lichSuKyDuyet : [];
+      const signatureRecord = createSignatureRecord(recordId, signatures, signatureHistory, payload?.savedAtClient ?? now);
       const record = normalizeStoredRecord({
-        id: randomUUID(),
-        createdAt: new Date().toISOString(),
+        id: recordId,
+        createdAt: now,
         savedAtClient: payload?.savedAtClient ?? null,
         savedBy: payload?.savedBy ?? null,
         khachHang: payload?.khachHang ?? null,
         hopDongChiTiet: payload?.hopDongChiTiet ?? null,
         formData: payload?.formData ?? null,
-        signatures: Array.isArray(payload?.signatures) ? payload.signatures : [],
         tepDinhKem: Array.isArray(payload?.tepDinhKem) ? payload.tepDinhKem : [],
       });
 
       contracts.push(record);
       await writeContracts(contracts);
+
+      const signatureRecords = await readSignatureRecords();
+      const signatureRecordIndex = signatureRecords.findIndex((item) => item.contractId === recordId || item.hopDongChiTietId === recordId);
+      if (signatureRecordIndex >= 0) {
+        signatureRecords[signatureRecordIndex] = signatureRecord;
+      } else {
+        signatureRecords.push(signatureRecord);
+      }
+      await writeSignatureRecords(signatureRecords);
 
       sendJson(res, 201, { id: record.id, message: 'Lưu dữ liệu thành công.' });
     } catch (error) {
@@ -437,6 +698,25 @@ const server = createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === 'DELETE' && /^\/api\/contracts\/[^/]+\/signatures\/\d+\/?$/.test(path)) {
+    try {
+      const [, , , encodedContractId, , encodedSignatureIndex] = path.split('/');
+      const contractId = decodeURIComponent(encodedContractId || '');
+      const signatureIndex = Number(decodeURIComponent(encodedSignatureIndex || ''));
+      const updatedId = await clearContractSignatureByRole({
+        contractId,
+        signatureIndex,
+        signer: '',
+      });
+
+      sendJson(res, 200, { message: 'Đã xóa chữ ký.', id: updatedId });
+    } catch (error) {
+      const statusCode = error instanceof Error && Number.isInteger(error.statusCode) ? error.statusCode : 400;
+      sendJson(res, statusCode, { message: error instanceof Error ? error.message : 'Không thể xóa chữ ký.' });
+    }
+    return;
+  }
+
   if (req.method === 'POST' && path === '/api/contracts/signatures') {
     try {
       const payload = await readBody(req);
@@ -456,6 +736,26 @@ const server = createServer(async (req, res) => {
     } catch (error) {
       const statusCode = error instanceof Error && Number.isInteger(error.statusCode) ? error.statusCode : 400;
       sendJson(res, statusCode, { message: error instanceof Error ? error.message : 'Không thể cập nhật chữ ký.' });
+    }
+    return;
+  }
+
+  if (req.method === 'POST' && path === '/api/contracts/signatures/delete') {
+    try {
+      const payload = await readBody(req);
+      const signatureIndex = Number(payload?.signatureIndex);
+      const contractId = typeof payload?.contractId === 'string' ? payload.contractId : '';
+
+      const updatedId = await clearContractSignatureByRole({
+        contractId,
+        signatureIndex,
+        signer: '',
+      });
+
+      sendJson(res, 200, { message: 'Đã xóa chữ ký.', id: updatedId });
+    } catch (error) {
+      const statusCode = error instanceof Error && Number.isInteger(error.statusCode) ? error.statusCode : 400;
+      sendJson(res, statusCode, { message: error instanceof Error ? error.message : 'Không thể xóa chữ ký.' });
     }
     return;
   }

@@ -16,7 +16,10 @@ interface ContractDocumentProps {
   onInputChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onPrint: () => void;
   onSave: () => void;
+  onConfirmSignature: (index: number) => Promise<boolean>;
+  onClearSignature: (index: number) => Promise<boolean>;
   isSaving: boolean;
+  isSignatureSyncing: boolean;
   isExportingPdf: boolean;
   saveMessage: string;
   signatures: SignatureHandlers;
@@ -32,7 +35,10 @@ export default function ContractDocument({
   onInputChange,
   onPrint,
   onSave,
+  onConfirmSignature,
+  onClearSignature,
   isSaving,
+  isSignatureSyncing,
   isExportingPdf,
   saveMessage,
   signatures,
@@ -125,7 +131,7 @@ export default function ContractDocument({
     setIsModalDirty(false);
   };
 
-  const confirmSignature = () => {
+  const confirmSignature = async () => {
     if (activeSignIndex === null || !isModalDirty) return;
 
     const modalCanvas = modalCanvasRef.current;
@@ -139,7 +145,17 @@ export default function ContractDocument({
 
     previewContext.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
     previewContext.drawImage(modalCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
-    closeSignatureModal();
+    const synced = await onConfirmSignature(activeSignIndex);
+    if (synced) {
+      closeSignatureModal();
+    }
+  };
+
+  const handleClearSignature = async (index: number) => {
+    const shouldClearPreview = await onClearSignature(index);
+    if (shouldClearPreview) {
+      signatures.clearSignature(index);
+    }
   };
 
   useEffect(() => {
@@ -343,7 +359,7 @@ export default function ContractDocument({
                       <button type="button" onClick={() => openSignatureModal(index)} className="sign-open-btn">
                         Ký
                       </button>
-                      <button type="button" onClick={() => signatures.clearSignature(index)} className="clear-btn">
+                      <button type="button" onClick={() => void handleClearSignature(index)} className="clear-btn" disabled={isSignatureSyncing}>
                         Xóa ký
                       </button>
                     </div>
@@ -390,9 +406,9 @@ export default function ContractDocument({
               </div>
 
               <div className="signature-modal-actions">
-                <button type="button" className="ghost-btn" onClick={clearModalCanvas}>Xóa nét ký</button>
-                <button type="button" className="ghost-btn" onClick={closeSignatureModal}>Hủy</button>
-                <button type="button" className="save-btn" onClick={confirmSignature} disabled={!isModalDirty}>
+                <button type="button" className="ghost-btn" onClick={clearModalCanvas} disabled={isSignatureSyncing}>Xóa nét ký</button>
+                <button type="button" className="ghost-btn" onClick={closeSignatureModal} disabled={isSignatureSyncing}>Hủy</button>
+                <button type="button" className="save-btn" onClick={() => void confirmSignature()} disabled={!isModalDirty || isSignatureSyncing}>
                   Xác nhận chữ ký
                 </button>
               </div>

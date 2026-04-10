@@ -50,6 +50,7 @@ const HopDongChiTietSchema = new mongoose.Schema(
 
 const LichSuKyDuyetSchema = new mongoose.Schema(
   {
+    hopDongChiTietId: { type: String, default: '' },
     vaiTro: { type: String, required: true },
     nguoiKy: { type: String, required: true },
     signatureDataUrl: { type: String, default: '' },
@@ -57,6 +58,19 @@ const LichSuKyDuyetSchema = new mongoose.Schema(
     kyLucAt: { type: String, default: '' },
   },
   { _id: true }
+);
+
+const SignatureSchema = new mongoose.Schema(
+  {
+    contractId: { type: String, required: true, unique: true },
+    hopDongChiTietId: { type: String, required: true, unique: true },
+    signatures: { type: [String], default: [] },
+    lichSuKyDuyet: { type: [LichSuKyDuyetSchema], default: [] },
+    savedAtClient: { type: String, default: '' },
+  },
+  {
+    timestamps: true,
+  }
 );
 
 const TepDinhKemSchema = new mongoose.Schema(
@@ -94,4 +108,5 @@ export const KhachHang = mongoose.model('KhachHang', KhachHangSchema);
 export const HopDong = mongoose.model('HopDong', HopDongSchema);
 export const HopDongChiTiet = mongoose.model('HopDongChiTiet', HopDongChiTietSchema);
 export const LichSuKyDuyet = mongoose.model('LichSuKyDuyet', LichSuKyDuyetSchema);
+export const Signature = mongoose.model('Signature', SignatureSchema);
 export const TepDinhKem = mongoose.model('TepDinhKem', TepDinhKemSchema);

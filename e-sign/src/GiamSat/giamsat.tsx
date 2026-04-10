@@ -1,39 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AdminSession, StoredContractRecord } from '../types/admin';
 import { REVIEW_ROLE_CONFIG } from '../features/contracts/constants';
-import {
-  getContractDetail,
-  getCustomerName,
-  getReviewStatusText,
-  getSignatureByIndex,
-  hasSignedByRole,
-  sortPendingFirst,
-} from '../features/review/contracts';
-
-type ReviewFilter = 'all' | 'pending' | 'signed';
+import { getContractDetail, getCustomerName, getSignatureByIndex, hasSignedByRole, sortPendingFirst } from '../features/review/contracts';
+import ReviewContractModal from './components/ReviewContractModal';
+import ReviewContractsTable from './components/ReviewContractsTable';
+import ReviewDashboardHeader from './components/ReviewDashboardHeader';
+import ReviewFilters from './components/ReviewFilters';
+import ReviewStats from './components/ReviewStats';
+import type { ReviewFilter, ReviewRoleConfig } from './types';
+import { formatDateTime } from './utils';
 
 interface SignatureReviewDashboardProps {
   session: AdminSession;
   onLogout: () => Promise<void> | void;
 }
 
-const formatDateTime = (value: string) => {
-  try {
-    return new Intl.DateTimeFormat('vi-VN', {
-      dateStyle: 'medium',
-      timeStyle: 'short',
-    }).format(new Date(value));
-  } catch {
-    return value;
-  }
-};
-
 export default function SignatureReviewDashboard({ session, onLogout }: SignatureReviewDashboardProps) {
   const accountRole = session.user.role === 'company' ? 'company' : 'supervisor';
-  const roleConfig = REVIEW_ROLE_CONFIG[accountRole];
+  const roleConfig: ReviewRoleConfig = REVIEW_ROLE_CONFIG[accountRole];
 
   const [contracts, setContracts] = useState<StoredContractRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
   const [filter, setFilter] = useState<ReviewFilter>('pending');
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -101,8 +89,9 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
     return sortPendingFirst(query ? queryFiltered : roleFiltered, roleConfig.signIndex);
   }, [contracts, filter, roleConfig.signIndex, search]);
 
-  const selectedContract = filteredContracts.find((contract) => contract.id === selectedId) ?? filteredContracts[0] ?? null;
+  const selectedContract = useMemo(() => contracts.find((contract) => contract.id === selectedId) ?? null, [contracts, selectedId]);
   const selectedContractSigned = selectedContract ? hasSignedByRole(selectedContract, roleConfig.signIndex) : false;
+  const selectedContractDetail = selectedContract ? getContractDetail(selectedContract) : null;
 
   const pendingCount = useMemo(() => contracts.filter((contract) => !hasSignedByRole(contract, roleConfig.signIndex)).length, [contracts, roleConfig.signIndex]);
   const signedCount = useMemo(() => contracts.filter((contract) => hasSignedByRole(contract, roleConfig.signIndex)).length, [contracts, roleConfig.signIndex]);
@@ -125,6 +114,8 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
   }, []);
 
   useEffect(() => {
+    if (!isReviewModalOpen) return;
+
     const canvas = signCanvasRef.current;
     const context = canvas?.getContext('2d');
     if (!canvas || !context) return;
@@ -146,7 +137,23 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
     };
     image.src = existingSignature;
-  }, [roleConfig.signIndex, selectedContract]);
+  }, [isReviewModalOpen, roleConfig.signIndex, selectedContract]);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsReviewModalOpen(false);
+      }
+    };
+
+    if (isReviewModalOpen) {
+      window.addEventListener('keydown', handleEscape);
+    }
+
+    return () => {
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [isReviewModalOpen]);
 
   const getPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = signCanvasRef.current;
@@ -200,6 +207,19 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
     setIsSignatureDirty(false);
   };
 
+  const openReviewModal = (contractId: string) => {
+    setSelectedId(contractId);
+    setIsReviewModalOpen(true);
+    setMessage('');
+    setError('');
+  };
+
+  const closeReviewModal = () => {
+    setIsReviewModalOpen(false);
+    isDrawing.current = false;
+    setIsSignatureDirty(false);
+  };
+
   const saveSignature = async () => {
     if (!selectedContract) {
       setMessage('Hãy chọn hợp đồng cần ký.');
@@ -220,6 +240,12 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
 
     if (!hasNewStroke.current || signatureDataUrl === initialSignature.current) {
       setMessage(`Chưa có chữ ký mới cho phần ${roleConfig.label}. Vui lòng ký tay rồi lưu.`);
+      return;
+    }
+
+    const confirmed = window.confirm(`Bạn có chắc chắn muốn xác nhận và lưu chữ ký cho phần ${roleConfig.label} không?`);
+    if (!confirmed) {
+      setMessage('Đã hủy lưu chữ ký.');
       return;
     }
 
@@ -259,6 +285,7 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
 
       setMessage('Đã lưu chữ ký thành công.');
       await loadContracts();
+      setFilter('all');
       setSelectedId(selectedContract.id);
       hasNewStroke.current = false;
       setIsSignatureDirty(false);
@@ -273,61 +300,20 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
   return (
     <div className="admin-page">
       <div className="admin-shell">
-        <header className="admin-header">
-          <div>
-            <p className="eyebrow">Duyệt chữ ký</p>
-            <h1>{roleConfig.label} - {session.user.displayName}</h1>
-            <p className="admin-lead">Xem toàn bộ hợp đồng và ký đúng phần theo chức vụ của bạn.</p>
-          </div>
+        <ReviewDashboardHeader
+          roleLabel={roleConfig.label}
+          displayName={session.user.displayName}
+          isLoading={isLoading}
+          isSavingSignature={isSavingSignature}
+          onReload={() => {
+            void loadContracts();
+          }}
+          onLogout={onLogout}
+        />
 
-          <div className="admin-actions">
-            <button type="button" className="ghost-btn" onClick={() => void loadContracts()} disabled={isLoading || isSavingSignature}>
-              Tải lại
-            </button>
-            <button type="button" className="danger-btn" onClick={() => void onLogout()}>
-              Đăng xuất
-            </button>
-          </div>
-        </header>
+        <ReviewStats total={contracts.length} signedCount={signedCount} pendingCount={pendingCount} roleLabel={roleConfig.label} />
 
-        <section className="stats-grid">
-          <article className="stat-card">
-            <span>Tổng hợp đồng</span>
-            <strong>{contracts.length}</strong>
-          </article>
-          <article className="stat-card">
-            <span>{roleConfig.label} đã ký</span>
-            <strong>{signedCount}</strong>
-          </article>
-          <article className="stat-card">
-            <span>{roleConfig.label} chưa ký</span>
-            <strong>{pendingCount}</strong>
-          </article>
-        </section>
-
-        <section className="admin-toolbar review-toolbar">
-          <div className="review-filters" role="tablist" aria-label="Bộ lọc ký duyệt">
-            <button type="button" className={`ghost-btn ${filter === 'all' ? 'is-active' : ''}`} onClick={() => setFilter('all')}>
-              Tất cả
-            </button>
-            <button type="button" className={`ghost-btn ${filter === 'pending' ? 'is-active' : ''}`} onClick={() => setFilter('pending')}>
-              Chưa ký
-            </button>
-            <button type="button" className={`ghost-btn ${filter === 'signed' ? 'is-active' : ''}`} onClick={() => setFilter('signed')}>
-              Đã ký
-            </button>
-          </div>
-
-          <label className="search-box review-search-box">
-            <span>Tìm hợp đồng</span>
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Tìm theo tên, mã KH, SĐT, CCCD..."
-            />
-          </label>
-        </section>
+        <ReviewFilters filter={filter} search={search} onFilterChange={setFilter} onSearchChange={setSearch} />
 
         {error ? <p className="panel-message panel-message--error">{error}</p> : null}
         {message ? <p className="panel-message">{message}</p> : null}
@@ -336,115 +322,32 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
         {!isLoading && filteredContracts.length === 0 ? <p className="panel-message">Không có hợp đồng phù hợp với bộ lọc hiện tại.</p> : null}
 
         {!isLoading && filteredContracts.length > 0 ? (
-          <div className="admin-grid">
-            <section className="panel table-panel">
-              <div className="panel-head">
-                <h2>Danh sách hợp đồng</h2>
-                <span>{filteredContracts.length} bản ghi</span>
-              </div>
-
-              <div className="table-wrap">
-                <table className="admin-table">
-                  <thead>
-                    <tr>
-                      <th>Thời gian</th>
-                      <th>Cửa hàng</th>
-                      <th>Mã KH</th>
-                      <th>Trạng thái {roleConfig.label}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredContracts.map((contract) => {
-                      const isSigned = hasSignedByRole(contract, roleConfig.signIndex);
-
-                      return (
-                        <tr
-                          key={contract.id}
-                          className={contract.id === selectedContract?.id ? 'is-selected' : ''}
-                          onClick={() => setSelectedId(contract.id)}
-                        >
-                          <td>{formatDateTime(contract.createdAt)}</td>
-                          <td>{getCustomerName(contract)}</td>
-                          <td>{contract.khachHang?.maKhachHang || contract.formData?.maKhachHang || 'Chưa có'}</td>
-                          <td>
-                            <span className={isSigned ? 'review-status review-status--done' : 'review-status review-status--pending'}>
-                              {isSigned ? 'Đã ký' : 'Chưa ký'}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <aside className="panel detail-panel">
-              <div className="panel-head">
-                <h2>Chi tiết ký duyệt</h2>
-                <span>{selectedContract ? selectedContract.id.slice(0, 8) : 'Chưa chọn'}</span>
-              </div>
-
-              {selectedContract ? (
-                <div className="detail-stack">
-                  <div className="detail-block">
-                    <span>Thông tin hợp đồng</span>
-                    <strong>{getCustomerName(selectedContract)}</strong>
-                    <p>CCCD: {selectedContract.khachHang?.cccd || selectedContract.formData?.cccd || 'Chưa có'}</p>
-                    <p>SĐT: {selectedContract.khachHang?.sdt || selectedContract.formData?.sdt || 'Chưa có'}</p>
-                    <p>Địa chỉ: {selectedContract.khachHang?.diaChi || selectedContract.formData?.diaChi || 'Chưa có'}</p>
-                    <p>Mã KH: {selectedContract.khachHang?.maKhachHang || selectedContract.formData?.maKhachHang || 'Chưa có'}</p>
-                    <p>Ngày ký hợp đồng: {getContractDetail(selectedContract)?.signedDate || selectedContract.hopDong?.signedDate || 'Chưa có'}</p>
-                    <p>
-                      Trạng thái ký {roleConfig.label}:{' '}
-                      <span className={selectedContractSigned ? 'review-status review-status--done' : 'review-status review-status--pending'}>
-                        {getReviewStatusText(selectedContract, roleConfig.signIndex)}
-                      </span>
-                    </p>
-                  </div>
-
-                  <div className="detail-block">
-                    <span>Nội dung chính cần xác nhận</span>
-                    <p>Mức kệ: {getContractDetail(selectedContract)?.mucKe || 'Chưa có'} kệ</p>
-                    <p>Vị trí trưng bày: {getContractDetail(selectedContract)?.viTriTrungBay || 'Chưa có'}</p>
-                    <p>Số lượng mẫu hàng: {getContractDetail(selectedContract)?.soLuongMauHang || 'Chưa có'}</p>
-                    <p>Tiêu chuẩn: {getContractDetail(selectedContract)?.tieuChuan || 'Chưa có'}</p>
-                    <p>Số kệ chương trình: {getContractDetail(selectedContract)?.soKe || 'Chưa có'}</p>
-                    <p>Thời gian thỏa thuận: {getContractDetail(selectedContract)?.thoiGianThoaThuan || 'Chưa có'} tháng</p>
-                    <p>Mức doanh số: {getContractDetail(selectedContract)?.mucDoanhSo || 'Chưa có'}</p>
-                    <p>Mức thưởng: {getContractDetail(selectedContract)?.mucThuong || 'Chưa có'}</p>
-                  </div>
-
-                  <div className="detail-block">
-                    <span>Ký tay xác nhận phần {roleConfig.label}</span>
-                    <p>Xem lại thông tin hợp đồng ở trên, sau đó ký tay để xác nhận hợp đồng đúng.</p>
-                    <canvas
-                      ref={signCanvasRef}
-                      width={520}
-                      height={220}
-                      className="sign-pad review-sign-pad"
-                      onPointerDown={onPointerDown}
-                      onPointerMove={onPointerMove}
-                      onPointerUp={stopDrawing}
-                      onPointerLeave={stopDrawing}
-                      onPointerCancel={stopDrawing}
-                    />
-                    <div className="toolbar-actions review-sign-actions">
-                      <button type="button" className="ghost-btn" onClick={clearSignaturePad} disabled={isSavingSignature}>
-                        Xóa chữ ký
-                      </button>
-                      <button type="button" className="save-btn" onClick={() => void saveSignature()} disabled={isSavingSignature || !isSignatureDirty}>
-                        {isSavingSignature ? 'Đang lưu ký...' : `Ký xác nhận ${roleConfig.label}`}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="panel-message">Chọn hợp đồng ở danh sách bên trái để ký duyệt.</p>
-              )}
-            </aside>
-          </div>
+          <ReviewContractsTable
+            contracts={filteredContracts}
+            selectedId={selectedId}
+            signIndex={roleConfig.signIndex}
+            roleLabel={roleConfig.label}
+            formatDateTime={formatDateTime}
+            onOpenReviewModal={openReviewModal}
+          />
         ) : null}
+
+        <ReviewContractModal
+          isOpen={isReviewModalOpen}
+          contract={selectedContract}
+          contractDetail={selectedContractDetail}
+          roleConfig={roleConfig}
+          selectedContractSigned={selectedContractSigned}
+          signCanvasRef={signCanvasRef}
+          isSavingSignature={isSavingSignature}
+          isSignatureDirty={isSignatureDirty}
+          onClose={closeReviewModal}
+          onClearSignaturePad={clearSignaturePad}
+          onSaveSignature={saveSignature}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={stopDrawing}
+        />
       </div>
     </div>
   );

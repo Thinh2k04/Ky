@@ -11,8 +11,14 @@ export function useSignatureCanvas(totalPads: number) {
   const blankDataUrls = useRef<string[]>(Array(totalPads).fill(''));
 
   const setCanvasRef = (index: number, element: HTMLCanvasElement | null) => {
+    // React callback refs can run as null -> element on re-render.
+    // Ignore transient null and only reset blank baseline when element node changes.
+    if (!element) return;
+
+    const previousElement = canvasRefs.current[index];
     canvasRefs.current[index] = element;
-    if (element) {
+
+    if (!previousElement || previousElement !== element) {
       blankDataUrls.current[index] = element.toDataURL('image/png');
     }
   };
@@ -87,9 +93,28 @@ export function useSignatureCanvas(totalPads: number) {
     blankDataUrls.current[index] = canvas.toDataURL('image/png');
   };
 
+  const hasInk = (canvas: HTMLCanvasElement) => {
+    const context = canvas.getContext('2d');
+    if (!context) return false;
+
+    const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+    // Check alpha channel in coarse steps for performance.
+    for (let i = 3; i < data.length; i += 32) {
+      if (data[i] !== 0) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
   const getSignatureDataUrls = () => {
     return canvasRefs.current.map((canvas, index) => {
       if (!canvas) return '';
+
+      if (!hasInk(canvas)) {
+        return '';
+      }
 
       const currentDataUrl = canvas.toDataURL('image/png');
       const blankDataUrl = blankDataUrls.current[index];
