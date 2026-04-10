@@ -284,11 +284,12 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
       }
 
       setMessage('Đã lưu chữ ký thành công.');
-      await loadContracts();
+      closeReviewModal();
       setFilter('all');
       setSelectedId(selectedContract.id);
       hasNewStroke.current = false;
       setIsSignatureDirty(false);
+      await loadContracts();
     } catch (saveError) {
       const saveMessage = saveError instanceof Error ? saveError.message : 'Không thể lưu chữ ký.';
       setError(saveMessage);

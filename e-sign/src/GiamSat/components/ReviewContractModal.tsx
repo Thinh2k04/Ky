@@ -42,6 +42,28 @@ export default function ReviewContractModal({
   }
 
   const visibleSignatureIndexes = roleConfig.signIndex === 2 ? [0, 1, 2] : [0, 1, 2, 3];
+  const signedDateFromRecord = contractDetail?.signedDate || contract.hopDong?.signedDate || '';
+  const signedDateDisplay = (() => {
+    if (signedDateFromRecord.trim()) {
+      return signedDateFromRecord;
+    }
+
+    const fallbackDateRaw = contract.savedAtClient || contract.createdAt || '';
+    if (!fallbackDateRaw) {
+      return 'Chưa có';
+    }
+
+    const parsedDate = new Date(fallbackDateRaw);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return 'Chưa có';
+    }
+
+    return new Intl.DateTimeFormat('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(parsedDate);
+  })();
 
   return (
     <div className="review-contract-modal-backdrop" role="dialog" aria-modal="true" aria-label="Xem và ký hợp đồng">
@@ -64,7 +86,7 @@ export default function ReviewContractModal({
             <p>CCCD: {contract.khachHang?.cccd || contract.formData?.cccd || 'Chưa có'}</p>
             <p>SĐT: {contract.khachHang?.sdt || contract.formData?.sdt || 'Chưa có'}</p>
             <p>Địa chỉ: {contract.khachHang?.diaChi || contract.formData?.diaChi || 'Chưa có'}</p>
-            <p>Ngày ký hợp đồng: {contractDetail?.signedDate || contract.hopDong?.signedDate || 'Chưa có'}</p>
+            <p>Ngày ký hợp đồng: {signedDateDisplay}</p>
             <p>
               Trạng thái ký {roleConfig.label}:{' '}
               <span className={selectedContractSigned ? 'review-status review-status--done' : 'review-status review-status--pending'}>
