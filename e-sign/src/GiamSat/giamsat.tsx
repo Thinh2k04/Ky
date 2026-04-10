@@ -22,6 +22,7 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
   const [contracts, setContracts] = useState<StoredContractRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [isSignatureModalOpen, setIsSignatureModalOpen] = useState(false);
   const [filter, setFilter] = useState<ReviewFilter>('pending');
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -114,7 +115,7 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
   }, []);
 
   useEffect(() => {
-    if (!isReviewModalOpen) return;
+    if (!isSignatureModalOpen) return;
 
     const canvas = signCanvasRef.current;
     const context = canvas?.getContext('2d');
@@ -137,23 +138,28 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
     };
     image.src = existingSignature;
-  }, [isReviewModalOpen, roleConfig.signIndex, selectedContract]);
+  }, [isSignatureModalOpen, roleConfig.signIndex, selectedContract]);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (isSignatureModalOpen) {
+          setIsSignatureModalOpen(false);
+          return;
+        }
+
         setIsReviewModalOpen(false);
       }
     };
 
-    if (isReviewModalOpen) {
+    if (isReviewModalOpen || isSignatureModalOpen) {
       window.addEventListener('keydown', handleEscape);
     }
 
     return () => {
       window.removeEventListener('keydown', handleEscape);
     };
-  }, [isReviewModalOpen]);
+  }, [isReviewModalOpen, isSignatureModalOpen]);
 
   const getPointer = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const canvas = signCanvasRef.current;
@@ -210,11 +216,23 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
   const openReviewModal = (contractId: string) => {
     setSelectedId(contractId);
     setIsReviewModalOpen(true);
+    setIsSignatureModalOpen(false);
     setMessage('');
     setError('');
   };
 
+  const openSignatureModal = () => {
+    setIsSignatureModalOpen(true);
+  };
+
+  const closeSignatureModal = () => {
+    setIsSignatureModalOpen(false);
+    isDrawing.current = false;
+    setIsSignatureDirty(false);
+  };
+
   const closeReviewModal = () => {
+    setIsSignatureModalOpen(false);
     setIsReviewModalOpen(false);
     isDrawing.current = false;
     setIsSignatureDirty(false);
@@ -284,6 +302,7 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
       }
 
       setMessage('Đã lưu chữ ký thành công.');
+      closeSignatureModal();
       closeReviewModal();
       setFilter('all');
       setSelectedId(selectedContract.id);
@@ -339,10 +358,13 @@ export default function SignatureReviewDashboard({ session, onLogout }: Signatur
           contractDetail={selectedContractDetail}
           roleConfig={roleConfig}
           selectedContractSigned={selectedContractSigned}
+          isSignatureModalOpen={isSignatureModalOpen}
           signCanvasRef={signCanvasRef}
           isSavingSignature={isSavingSignature}
           isSignatureDirty={isSignatureDirty}
           onClose={closeReviewModal}
+          onOpenSignatureModal={openSignatureModal}
+          onCloseSignatureModal={closeSignatureModal}
           onClearSignaturePad={clearSignaturePad}
           onSaveSignature={saveSignature}
           onPointerDown={onPointerDown}

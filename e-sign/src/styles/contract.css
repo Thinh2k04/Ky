@@ -739,7 +739,7 @@ body {
 }
 
 .review-contract-modal {
-  width: min(1120px, 100%);
+  width: min(1180px, 100%);
   max-height: calc(100vh - 24px);
   overflow: auto;
   border-radius: 20px;
@@ -774,6 +774,87 @@ body {
   gap: 12px;
 }
 
+.review-contract-scroll {
+  max-height: calc(100vh - 110px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.review-contract-sheet {
+  width: min(100%, 820px);
+  margin: 0 auto;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(255, 255, 255, 0.96)),
+    repeating-linear-gradient(0deg, rgba(15, 23, 42, 0.02), rgba(15, 23, 42, 0.02) 1px, transparent 1px, transparent 26px);
+  border: 1px solid rgba(148, 163, 184, 0.36);
+  border-radius: 16px;
+  box-shadow:
+    0 26px 55px rgba(15, 23, 42, 0.2),
+    0 4px 10px rgba(15, 23, 42, 0.06);
+}
+
+.review-contract-paper-body {
+  padding: 42px 44px 46px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: #0f172a;
+}
+
+.review-contract-title {
+  margin-top: 30px;
+}
+
+.review-contract-header-row {
+  padding-bottom: 14px;
+}
+
+.review-contract-section {
+  margin-left: 0;
+}
+
+.review-contract-lines {
+  display: grid;
+  gap: 8px;
+}
+
+.review-contract-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+}
+
+.review-contract-line strong {
+  font-weight: 700;
+}
+
+.review-contract-line--wide {
+  line-height: 1.6;
+}
+
+.review-contract-paragraph {
+  margin: 0;
+  line-height: 1.65;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.review-inline-text {
+  display: inline-flex;
+  min-width: 24px;
+  justify-content: center;
+  border-bottom: 1px solid rgba(30, 41, 59, 0.42);
+  padding: 0 2px;
+}
+
+.review-reward-table {
+  margin-top: 8px;
+}
+
+.review-signature-grid--paper {
+  margin-top: 42px;
+}
+
 .review-detail-full {
   gap: 10px;
 }
@@ -785,10 +866,16 @@ body {
 }
 
 .review-signature-card {
+  display: flex;
+  flex-direction: column;
   border: 1px solid rgba(20, 32, 51, 0.12);
   border-radius: 14px;
   padding: 10px;
   background: rgba(255, 255, 255, 0.82);
+}
+
+.review-signature-grid--paper .review-signature-card {
+  min-height: 220px;
 }
 
 .review-signature-card.is-active-role {
@@ -803,14 +890,60 @@ body {
   color: #334155;
 }
 
-.review-signature-card--current {
-  grid-column: 1 / -1;
-}
-
 .review-signature-help {
   margin: 0 0 8px;
   font-size: 14px;
   color: #475569;
+}
+
+.review-signature-preview {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 88px;
+  margin: 2px 0 10px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px dashed rgba(148, 163, 184, 0.72);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.review-signature-preview.has-signature {
+  border-style: solid;
+  border-color: rgba(15, 118, 110, 0.22);
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.review-signature-preview.is-empty span {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.review-signature-preview img {
+  display: block;
+  width: 100%;
+  height: 64px;
+  object-fit: contain;
+}
+
+.review-signature-open-btn {
+  width: 100%;
+  border: 1px solid rgba(29, 78, 216, 0.24);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: linear-gradient(145deg, rgba(239, 246, 255, 0.98), rgba(219, 234, 254, 0.94));
+  color: #1d4ed8;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+  margin-top: auto;
+}
+
+.review-signature-open-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(29, 78, 216, 0.12);
+  filter: brightness(1.01);
 }
 
 .review-signature-card img {
@@ -1618,6 +1751,18 @@ body {
     border-radius: 14px;
   }
 
+  .review-contract-scroll {
+    max-height: calc(100vh - 92px);
+  }
+
+  .review-contract-paper-body {
+    padding: 26px 16px 30px;
+  }
+
+  .review-contract-sheet {
+    width: 100%;
+  }
+
   .review-contract-head {
     flex-direction: column;
     align-items: stretch;
@@ -1629,6 +1774,10 @@ body {
 
   .review-signature-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .review-signature-grid--paper {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1669,6 +1818,18 @@ body {
   .review-contract-modal {
     padding: 12px;
     max-height: calc(100vh - 16px);
+  }
+
+  .review-contract-scroll {
+    max-height: calc(100vh - 76px);
+  }
+
+  .review-contract-paper-body {
+    padding: 20px 12px 24px;
+  }
+
+  .review-contract-line {
+    gap: 4px 6px;
   }
 
   .review-signature-grid {
